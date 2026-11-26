@@ -14,10 +14,11 @@ def last(code):
 
 
 @pytest.mark.parametrize("code, needle", [
-    # Vector/Matrix-vergelijking is geen geldige solve-invoer
+    # strijdige Vector-vergelijking: zichtbare fout (geen stille NULL)
     ("A := Matrix([[1,2],[3,4],[5,6]]): yv := Vector([1,2,4]): solve(A.(<v0, -g/2>)=yv, {v0,g});",
-     "(in solve) invalid input: solve received"),
-    ("solve(<a, b> = <1, 2>, {a, b});", "(in solve) invalid input"),
+     "(in solve) inconsistent system"),
+    ("solve(<a, b> = <1, 2, 3>, {a, b});", "must have the same dimensions"),
+    ("solve(<a, b> = Matrix([[1, 2]]), {a, b});", "(in solve) invalid input"),
     ("solve(Matrix([[1,2],[3,4]]), x);", "(in solve) invalid input"),
     ("fsolve(<x^2-2>, x);", "(in fsolve) invalid input"),
     ("solve(\"abc\", x);", "solve received \"abc\""),
@@ -43,6 +44,12 @@ def test_invalid_arguments_raise(code, needle):
     ("solve(x = x + 1, x);", ""),                                  # Maple: NULL (geen oplossing)
     ("solve({x + y = 1, x + y = 2}, {x, y});", ""),                # strijdig stelsel: NULL
     ("with(LinearAlgebra): solve(Equate(<a, b>, <1, 2>), {a, b});", "{a = 1, b = 2}"),
+    # Vector/Matrix-vergelijkingen worden per component opgelost (normaalvergelijkingen)
+    ("solve(<a, b> = <1, 2>, {a, b});", "{a = 1, b = 2}"),
+    ("A := Matrix([[1,2],[3,4],[5,6]]): yv := <1,2,4>: solve((A^%T.A).(<v0,-g/2>) = A^%T.yv, {v0, g});",
+     "{v0 = 2/3, g = -1/6}"),
+    ("solve(Matrix([[a, b], [c, 1]]) = Matrix([[1, 2], [3, 1]]), {a, b, c});", "{a = 1, b = 2, c = 3}"),
+    ("fsolve(<x^2> = <2>, x = 1..2);", "1.414213562"),
     ("A := Matrix([[1,2],[3,4],[5,6]]): solve(LinearAlgebra:-Equate(A.<v0, -g/2>, <1, 2, 3>), {v0, g});",
      "{g = -1, v0 = 0}"),
     ("int(<x, 1>, x);", "[x^2/2]\n[    x]"),                        # int/diff mogen een Vector afbeelden

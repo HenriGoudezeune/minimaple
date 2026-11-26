@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>mini-Maple downloaden</title>
-<meta name="description" content="mini-Maple als offline app voor Windows: downloaden, installeren en .mw/.mpl-bestanden koppelen.">
+<meta name="description" content="mini-Maple als offline app voor Windows, macOS en Linux: downloaden, installeren en .mw/.mpl-bestanden koppelen.">
 <link rel="stylesheet" href="/static/fonts.css?v=9">
 <script src="/static/theme.js?v=9"></script>
 <link rel="stylesheet" href="/static/app.css?v=9">
@@ -28,6 +28,20 @@
   .dl a { color: var(--link, var(--accent)); }
   [data-theme=hygra] .dl .card { border: 2px solid var(--line); }
   [data-theme=hygra] body { font-family: "Chakra Petch", system-ui, sans-serif; }
+  .dl .os { scroll-margin-top: 16px; }
+  .dl .os h2 { font-size: 21px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dl .os h3 { font-size: 15px; margin: 18px 0 6px; }
+  .dl .mine { font-size: 12px; font-weight: 700; background: var(--accent); color: var(--on-accent, #fff); border-radius: 999px; padding: 2px 10px; display: none; }
+  .dl .os.is-mine .mine { display: inline-block; }
+  .dl .os.is-mine { border-color: var(--accent); }
+  .dl .btns { display: flex; flex-wrap: wrap; gap: 10px; }
+  .dl .btn.alt { background: var(--fill2); color: var(--text); }
+  .dl .btn small { font-weight: 500; opacity: .8; font-size: 13px; }
+  .dl .note { background: var(--fill); border-left: 4px solid var(--c2); border-radius: 8px; padding: 10px 12px; margin: 10px 0 0; line-height: 1.55; font-size: 14px; }
+  .dl .jump { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; }
+  .dl .jump a { background: var(--fill); border-radius: 999px; padding: 6px 14px; text-decoration: none; color: var(--text); font-size: 14px; font-weight: 600; }
+  .dl pre { margin: 6px 0 0; overflow-x: auto; }
+  .dl pre code { display: block; padding: 8px 10px; white-space: pre; }
 </style>
 </head>
 <body>
@@ -38,45 +52,73 @@
   </nav>
 </header>
 <main class="dl">
-  <h1>mini-Maple voor Windows</h1>
-  <p class="lead">Dezelfde worksheet als op <a href="/">maple.hydrargyrum.be</a>, maar als app op je eigen laptop. De rekenkern draait lokaal: geen internet nodig, geen tijdslimiet van de server, en je kan .mw- en .mpl-bestanden rechtstreeks openen met een dubbelklik.</p>
-
-  <div class="card">
-    <a class="btn" href="/download/mini-Maple-windows.zip" download>
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
-      Download voor Windows (.zip)
-    </a>
-    <div class="facts">
-      <div><b>Versie</b>2026.11.26</div>
-      <div><b>Grootte</b>99 MB (uitgepakt 284 MB)</div>
-      <div><b>Systeem</b>Windows 10/11, 64-bit</div>
-      <div><b>Installatie</b>Geen admin nodig</div>
-    </div>
-    <p class="meta">Inclusief eigen Python en alle rekenbibliotheken. Broncode: <a href="https://github.com/HenriGoudezeune/minimaple">github.com/HenriGoudezeune/minimaple</a>.</p>
+  <h1>mini-Maple downloaden</h1>
+  <p class="lead">Dezelfde worksheet als op <a href="/">maple.hydrargyrum.be</a>, maar als app op je eigen computer. De rekenkern draait lokaal: geen internet nodig, geen tijdslimiet van de server, en je opent .mw- en .mpl-bestanden met een dubbelklik.</p>
+  <nav class="jump" aria-label="Kies je systeem"><a href="#windows">Windows</a><a href="#macos">macOS</a><a href="#linux">Linux</a></nav>
+  <div class="facts">
+    <div><b>Versie</b><span id="ver">nieuwste</span></div>
+    <div><b>Inbegrepen</b>Python, sympy, numpy, scipy, matplotlib</div>
+    <div><b>Venster</b>Edge, Chrome, Chromium of Brave in app-modus, anders je browser</div>
   </div>
 
-  <div class="card">
-    <h2>Installeren</h2>
+  <div id="tiles">
+  <section class="card os" id="windows" data-os="windows">
+    <h2>Windows <span class="mine">jouw systeem</span></h2>
+    <div class="btns"><a class="btn" href="https://github.com/HenriGoudezeune/minimaple/releases/latest/download/mini-Maple-setup.exe" data-asset="mini-Maple-setup.exe"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg> Installer (.exe) <small data-size="mini-Maple-setup.exe"></small></a></div>
+    <p class="meta">Windows 10/11, 64-bit. Installeert per gebruiker, geen admin nodig. Zonder installatie: <a href="https://github.com/HenriGoudezeune/minimaple/releases/latest/download/mini-Maple-windows.zip">zip-versie</a> <span data-size="mini-Maple-windows.zip"></span> (uitpakken, <code>mini-Maple.vbs</code> starten).</p>
+    <h3>Installeren</h3>
     <ol>
-      <li>Download de zip en pak hem uit naar een vaste map, bijvoorbeeld <code>C:\Users\jij\mini-Maple</code> (rechtsklik → <i>Alles uitpakken</i>).</li>
-      <li>Dubbelklik <code>mini-Maple.vbs</code>. De app opent in een eigen venster.</li>
-      <li>Optioneel: dubbelklik <code>snelkoppeling-maken.vbs</code> voor een snelkoppeling op het bureaublad en in het Startmenu.</li>
+      <li>Open <code>mini-Maple-setup.exe</code>.</li>
+      <li>SmartScreen toont "Windows heeft uw pc beveiligd": klik <b>Meer informatie</b> → <b>Toch uitvoeren</b>. Dat komt doordat de app niet digitaal ondertekend is (dat kost honderden euro's per jaar).</li>
+      <li>Kies of je een bureaubladsnelkoppeling wil en of .mw/.mpl met mini-Maple moeten openen. Daarna staat mini-Maple in het Startmenu.</li>
     </ol>
-  </div>
+    <h3>Standaardprogramma voor .mw en .mpl</h3>
+    <p style="margin:0;line-height:1.55">Windows laat een app de standaard niet stil overnemen. Rechtsklik één keer een <code>.mw</code>-bestand → <b>Openen met</b> → <b>Een andere app kiezen</b> → <b>mini-Maple</b> → <b>Altijd</b>. Doe hetzelfde voor <code>.mpl</code>. Of via <b>Instellingen → Apps → Standaard-apps → mini-Maple</b>.</p>
+    <h3>Bijwerken en verwijderen</h3>
+    <ul>
+      <li>Bijwerken: download de nieuwe installer en voer hem uit over de oude installatie.</li>
+      <li>Verwijderen: <b>Instellingen → Apps → Geïnstalleerde apps → mini-Maple → Verwijderen</b>. Snelkoppelingen en bestandskoppelingen gaan mee weg.</li>
+    </ul>
+  </section>
 
-  <div class="card warn">
-    <h2>Windows waarschuwt bij de eerste start</h2>
-    <p style="margin:0;line-height:1.55">De app is niet digitaal ondertekend (dat kost honderden euro's per jaar). Windows SmartScreen toont daarom "Windows heeft uw pc beveiligd". Klik op <b>Meer informatie</b> → <b>Toch uitvoeren</b>. Blokkeert Windows de scripts, rechtsklik dan de zip vóór het uitpakken → <b>Eigenschappen</b> → vink <b>Blokkering opheffen</b> aan.</p>
-  </div>
-
-  <div class="card">
-    <h2>mini-Maple als standaard voor .mw en .mpl</h2>
+  <section class="card os" id="macos" data-os="macos">
+    <h2>macOS <span class="mine">jouw systeem</span></h2>
+    <div class="btns"><a class="btn" href="https://github.com/HenriGoudezeune/minimaple/releases/latest/download/mini-Maple-macos-arm64.dmg" data-asset="mini-Maple-macos-arm64.dmg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg> Apple-chip (M1 en later) <small data-size="mini-Maple-macos-arm64.dmg"></small></a><a class="btn alt" href="https://github.com/HenriGoudezeune/minimaple/releases/latest/download/mini-Maple-macos-x86_64.dmg" data-asset="mini-Maple-macos-x86_64.dmg"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg> Intel <small data-size="mini-Maple-macos-x86_64.dmg"></small></a></div>
+    <p class="meta">Apple-chip: macOS 12 of nieuwer. Intel: macOS 10.15 of nieuwer. Weet je het niet? Apple-menu → <b>Over deze Mac</b>: "Chip Apple M…" of "Processor Intel…".</p>
+    <h3>Installeren</h3>
     <ol>
-      <li>Dubbelklik <code>bestandskoppeling-aan.vbs</code> in de map van de app.</li>
-      <li>Windows laat een app de standaard niet stil overnemen. Rechtsklik daarom één keer een <code>.mw</code>-bestand → <b>Openen met</b> → <b>Een andere app kiezen</b> → <b>mini-Maple</b> → <b>Altijd</b>. Doe hetzelfde voor een <code>.mpl</code>-bestand.</li>
-      <li>Of via <b>Instellingen → Apps → Standaard-apps → mini-Maple</b>.</li>
+      <li>Open de .dmg en sleep <b>mini-Maple</b> naar <b>Applications</b>.</li>
+      <li>De app is niet ondertekend bij Apple, dus Gatekeeper blokkeert de eerste start. Rechtsklik mini-Maple in Applications → <b>Openen</b> → <b>Open</b>. Op macOS 15 en later: probeer te openen, ga dan naar <b>Systeeminstellingen → Privacy en beveiliging</b> en klik onderaan <b>Toch openen</b>.</li>
+      <li>Of in Terminal, in één keer: <pre><code>xattr -dr com.apple.quarantine /Applications/mini-Maple.app</code></pre></li>
     </ol>
-    <p class="meta">Ongedaan maken: <code>bestandskoppeling-uit.vbs</code>.</p>
+    <h3>Standaardprogramma voor .mw en .mpl</h3>
+    <p style="margin:0;line-height:1.55">Selecteer een <code>.mw</code>-bestand in de Finder → <b>Archief → Toon info</b> (<kbd>⌘I</kbd>) → <b>Open met: mini-Maple</b> → <b>Wijzig alle…</b>. Doe hetzelfde voor <code>.mpl</code>.</p>
+    <h3>Bijwerken en verwijderen</h3>
+    <ul>
+      <li>Bijwerken: sleep de nieuwe versie naar Applications en kies <b>Vervang</b>.</li>
+      <li>Verwijderen: sleep mini-Maple uit Applications naar de prullenmand. Eventueel ook <code>~/Library/Application Support/mini-Maple</code>.</li>
+    </ul>
+  </section>
+
+  <section class="card os" id="linux" data-os="linux">
+    <h2>Linux <span class="mine">jouw systeem</span></h2>
+    <div class="btns"><a class="btn" href="https://github.com/HenriGoudezeune/minimaple/releases/latest/download/mini-Maple-x86_64.AppImage" data-asset="mini-Maple-x86_64.AppImage"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg> AppImage <small data-size="mini-Maple-x86_64.AppImage"></small></a><a class="btn alt" href="https://github.com/HenriGoudezeune/minimaple/releases/latest/download/mini-maple_amd64.deb" data-asset="mini-maple_amd64.deb"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg> .deb (Debian/Ubuntu) <small data-size="mini-maple_amd64.deb"></small></a></div>
+    <p class="meta">x86_64, glibc 2.28 of nieuwer (Ubuntu 20.04+, Debian 10+, Fedora 29+).</p>
+    <h3>Installeren</h3>
+    <ul>
+      <li><b>AppImage</b> (elke distributie): maak het bestand uitvoerbaar en start het. Bij de eerste start zet mini-Maple zichzelf in het appmenu.<pre><code>chmod +x mini-Maple-x86_64.AppImage
+./mini-Maple-x86_64.AppImage</code></pre>Klaagt hij over FUSE, installeer dan <code>libfuse2</code> (Ubuntu 24.04: <code>libfuse2t64</code>).</li>
+      <li><b>.deb</b> (Debian, Ubuntu, Mint): <pre><code>sudo apt install ./mini-maple_amd64.deb</code></pre>Daarna staat mini-Maple in het appmenu; starten kan ook met <code>mini-maple</code>.</li>
+    </ul>
+    <h3>Standaardprogramma voor .mw en .mpl</h3>
+    <p style="margin:0;line-height:1.55">Rechtsklik een <code>.mw</code>-bestand → <b>Openen met een andere toepassing</b> → <b>mini-Maple</b> → <b>Als standaard instellen</b>. Of in een terminal:</p>
+    <pre><code>xdg-mime default mini-maple.desktop application/x-maple-worksheet text/x-maple-source</code></pre>
+    <h3>Bijwerken en verwijderen</h3>
+    <ul>
+      <li>AppImage: vervang het bestand door de nieuwe versie. Verwijderen: wis het bestand en <code>~/.local/share/applications/mini-maple.desktop</code>.</li>
+      <li>.deb: bijwerken met dezelfde <code>apt install</code>, verwijderen met <code>sudo apt remove mini-maple</code>.</li>
+    </ul>
+  </section>
   </div>
 
   <div class="card">
@@ -85,17 +127,47 @@
       <li><kbd>Enter</kbd> voert een invoergroep uit, <kbd>Shift+Enter</kbd> geeft een nieuwe regel.</li>
       <li><kbd>Ctrl+J</kbd> / <kbd>Ctrl+K</kbd>: nieuwe invoergroep eronder / erboven.</li>
       <li><kbd>Ctrl+Space</kbd>: autocompletion, <kbd>F1</kbd> of <code>?diff</code>: help.</li>
-      <li>Werkt het venster niet, start dan <code>mini-Maple.bat</code>: dat toont de foutmelding.</li>
+      <li>Sluit je het venster, dan stopt mini-Maple vanzelf. Zonder Edge/Chrome opent de app in een gewoon tabblad; de rekenkern stopt dan zo'n 10 minuten nadat je het tabblad sluit.</li>
+      <li>Werkt een werkblad vanuit de webversie meenemen niet (knop <b>In app</b>)? Start de app eerst één keer.</li>
     </ul>
-  </div>
-
-  <div class="card">
-    <h2>Bijwerken en verwijderen</h2>
-    <ul>
-      <li>Bijwerken: download de nieuwe zip en pak hem uit over de oude map.</li>
-      <li>Verwijderen: draai <code>bestandskoppeling-uit.vbs</code>, verwijder de snelkoppelingen en daarna de map. Er blijft niets achter in het register.</li>
-    </ul>
+    <p class="meta">Broncode en alle versies: <a href="https://github.com/HenriGoudezeune/minimaple/releases">github.com/HenriGoudezeune/minimaple/releases</a>.</p>
   </div>
 </main>
+<script>
+(function () {
+  var ua = navigator.userAgent || "", plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  var os = /Win/i.test(plat) || /Windows/i.test(ua) ? "windows"
+         : /Mac/i.test(plat) && !/iPhone|iPad/i.test(ua) ? "macos"
+         : /Linux|X11/i.test(plat + ua) && !/Android/i.test(ua) ? "linux" : null;
+  if (os) {
+    var t = document.getElementById(os), box = document.getElementById("tiles");
+    t.classList.add("is-mine"); box.insertBefore(t, box.firstChild);
+  }
+  if (os === "macos") {
+    // Intel-Mac herkennen via de GPU-naam (Apple-chip is de standaard)
+    try {
+      var gl = document.createElement("canvas").getContext("webgl"), ext = gl && gl.getExtension("WEBGL_debug_renderer_info");
+      var r = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : "";
+      if (/Intel|AMD|Radeon/i.test(r) && !/Apple/i.test(r)) {
+        var b = document.querySelectorAll("#macos .btn");
+        b[0].classList.add("alt"); b[1].classList.remove("alt"); b[1].parentNode.insertBefore(b[1], b[0]);
+      }
+    } catch (e) {}
+  }
+  fetch("https://api.github.com/repos/HenriGoudezeune/minimaple/releases/latest")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d) return;
+      document.getElementById("ver").textContent = String(d.tag_name || "").replace(/^v/, "") +
+        (d.published_at ? " (" + new Date(d.published_at).toLocaleDateString("nl-BE") + ")" : "");
+      (d.assets || []).forEach(function (a) {
+        document.querySelectorAll('[data-size="' + a.name + '"]').forEach(function (el) {
+          el.textContent = Math.round(a.size / 1e6) + " MB";
+        });
+      });
+    })
+    .catch(function () {});
+})();
+</script>
 </body>
 </html>

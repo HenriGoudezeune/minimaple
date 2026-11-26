@@ -223,7 +223,29 @@ def int_(ctx, f, *rest):
     if len(specs) > 1:
         # int(f, x=a..b, y=c..d): binnenste eerst (eerste argument)
         pass
-    return _mapv(lambda e: _int_one(e, specs), f)
+    return _mapv(lambda e: _int_cached(e, specs), f)
+
+
+_INT_CACHE = {}
+
+
+def _int_cached(e, specs):
+    """Geheugen voor identieke integralen (recursieve procedures zoals Gram-Schmidt rekenen dezelfde integraal
+    vaak opnieuw uit). Sleutel = structuur incl. aannames van de symbolen."""
+    try:
+        key = (sp.srepr(e), tuple((sp.srepr(v), sp.srepr(lo) if lo is not None else None,
+                                   sp.srepr(hi) if hi is not None else None) for v, lo, hi in specs),
+               tuple(sorted((str(s), tuple(sorted(s.assumptions0.items()))) for s in sp.sympify(e).free_symbols))
+               if isinstance(e, sp.Basic) else ())
+    except Exception:
+        return _int_one(e, specs)
+    if key in _INT_CACHE:
+        return _INT_CACHE[key]
+    r = _int_one(e, specs)
+    if len(_INT_CACHE) > 2000:
+        _INT_CACHE.clear()
+    _INT_CACHE[key] = r
+    return r
 
 
 @maple('Int')
@@ -314,7 +336,12 @@ def _sum_prod(f, spec, which, inert=False):
 
 
 @maple('sum')
-def sum_(ctx, f, spec, *rest):
+def sum_(ctx, f, spec=None, *rest):
+    if spec is None:
+        # sum(L) / sum(V): som van de elementen van een container
+        if isinstance(f, (MList, MSet, Seq, list, tuple)) or isinstance(f, sp.MatrixBase):
+            return sp.Add(*list(f))
+        raise CalcError("invalid input: sum expects 2 or more arguments, but received 1")
     return _mapv(lambda e: _sum_prod(e, spec, 'sum'), f)
 
 
@@ -357,9 +384,25 @@ def series(ctx, f, pt=None, n=None, *rest):
 
     def one(e):
         e = sp.sympify(e)
-        if a in (oo, -oo):
+        if e.has(sp.Order):
+            # O-termen in een andere veranderlijke (bv. na subs in een eerdere reeks) weglaten
+            e = e.replace(lambda z: isinstance(z, sp.Order) and not (v in z.variables), lambda z: sp.Integer(0))
+        try:
             return sp.series(e, v, a, nn)
-        return sp.series(e, v, a, nn)
+        except ValueError:
+            if a in (oo, -oo):
+                raise
+            # terugval: Taylorcoefficienten via afgeleiden (werkt voor regelmatige functies in v)
+            h = sp.Dummy('h')
+            g = e.subs(v, a + h)
+            terms, d = [], g
+            for k in range(nn):
+                c = sp.simplify(d.subs(h, 0) / sp.factorial(k))
+                if c.has(sp.nan, sp.zoo, sp.oo):
+                    raise
+                terms.append(c * (v - a) ** k)
+                d = sp.diff(d, h)
+            return sp.Add(*terms) + sp.Order((v - a) ** nn, (v, a))
     return _mapv(one, f)
 
 
@@ -725,9 +768,13 @@ def solve(ctx, eqs, *rest):
     rest = [r for r in rest if not (isinstance(r, sp.Equality) and isinstance(r.lhs, sp.Symbol)
                                     and r.lhs.name in ('explicit', 'useassumptions', 'parameters'))]
     vars_arg = rest[0] if rest else None
-    eq_list = _gather(eqs)
-    if not isinstance(eqs, (MList, MSet, Seq, list, tuple)) and False:
-        pass
+    eq_list, had_rtable = _expand_rtable_eqs(_gather(eqs))
+    if had_rtable:
+        res = solve(ctx, MSet(eq_list), *rest)
+        if isinstance(res, Seq) and len(res) == 0:
+            raise CalcError("inconsistent system: the Vector/Matrix equation has no solution "
+                            "(use LeastSquares for an overdetermined system)")
+        return res
     # ongelijkheden
     if any(_is_ineq(q) or isinstance(q, (sp.And, sp.Or)) for q in eq_list):
         vs = _gather(vars_arg) if vars_arg is not None else None
@@ -806,7 +853,7 @@ def fsolve(ctx, eqs, *rest):
                                      ('maxsols', 'complex', 'avoid', 'fulldigits'))
             and not (isinstance(r, sp.Symbol) and r.name in ('complex', 'maxsols', 'fulldigits'))]
     vars_arg = rest[0] if rest else None
-    eq_list = [_expr(q) for q in _gather(eqs)]
+    eq_list = [_expr(q) for q in _expand_rtable_eqs(_gather(eqs))[0]]
     system = len(eq_list) > 1 or isinstance(vars_arg, (MList, MSet))
     if vars_arg is None:
         fs = sorted(set().union(*[q.free_symbols for q in eq_list]), key=str)
@@ -1661,8 +1708,30 @@ def _is_container(v):
     return isinstance(v, (MList, MSet, Seq, list, tuple))
 
 
-def _alg_ok(v, allow_matrix=False, allow_bool=False):
+def _rtable_eq(v):
+    """Vergelijking tussen twee Vectoren/Matrices van dezelfde vorm (per component op te lossen)."""
+    if type(v).__name__ != "Equality" or not hasattr(v, "args") or len(v.args) != 2:
+        return False
+    a, b = v.args
+    return isinstance(a, sp.MatrixBase) and isinstance(b, sp.MatrixBase) and a.shape == b.shape
+
+
+def _expand_rtable_eqs(items):
+    """[A.x = y, ...] -> componentsgewijze vergelijkingen; -> (lijst, had_rtable)."""
+    out, had = [], False
+    for q in items:
+        if _rtable_eq(q):
+            had = True
+            out.extend(sp.Eq(x, y, evaluate=False) for x, y in zip(q.args[0], q.args[1]))
+        else:
+            out.append(q)
+    return out, had
+
+
+def _alg_ok(v, allow_matrix=False, allow_bool=False, allow_rtable_eq=False):
     """Is v een algebraisch object (expressie, vergelijking, relatie) zoals solve/int/... die verwacht?"""
+    if allow_rtable_eq and _rtable_eq(v):
+        return True
     if isinstance(v, sp.MatrixBase):
         return allow_matrix
     if isinstance(v, Str):
@@ -1689,18 +1758,21 @@ def _var_ok(v):
 
 def _bad(nm, v, i, lib=True):
     msg = f"invalid input: {nm} received {_txt(v)}, which is not valid for its {_ordn(i)} argument"
-    if isinstance(v, sp.MatrixBase) or (type(v).__name__ == "Equality" and any(
+    if type(v).__name__ == "Equality" and all(isinstance(s, sp.MatrixBase) for s in getattr(v, "args", ())) \
+            and nm in ("solve", "fsolve"):
+        msg += " (the Vector/Matrix sides of the equation must have the same dimensions)"
+    elif isinstance(v, sp.MatrixBase) or (type(v).__name__ == "Equality" and any(
             isinstance(s, sp.MatrixBase) for s in getattr(v, "args", ()))):
         msg += " (Vector/Matrix equations are not valid here: compare components, e.g. convert(lhs - rhs, list) or Equate(lhs, rhs))"
     raise CalcError(f"(in {nm}) {msg}" if lib else msg)
 
 
-def _check_eqs(nm, eqs, i=1, allow_matrix=False):
+def _check_eqs(nm, eqs, i=1, allow_matrix=False, allow_rtable_eq=False):
     items = list(eqs) if _is_container(eqs) else [eqs]
     if isinstance(eqs, sp.MatrixBase) and not allow_matrix:
         _bad(nm, eqs, i)
     for q in items:
-        if not _alg_ok(q, allow_matrix=allow_matrix, allow_bool=True):
+        if not _alg_ok(q, allow_matrix=allow_matrix, allow_bool=True, allow_rtable_eq=allow_rtable_eq):
             _bad(nm, eqs if not _is_container(eqs) else q, i)
 
 
@@ -1725,7 +1797,7 @@ def validate_args(nm, args):
 
 
 def _v_solve(nm, a):
-    _check_eqs(nm, a[0], 1)
+    _check_eqs(nm, a[0], 1, allow_rtable_eq=True)
     pos = [x for x in a[1:] if not (isinstance(x, sp.Equality) and isinstance(x.lhs, sp.Symbol)
                                      and x.lhs.name in ('explicit', 'useassumptions', 'parameters', 'maxsols',
                                                         'complex', 'avoid', 'fulldigits', 'AllSolutions'))
