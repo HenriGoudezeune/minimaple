@@ -72,7 +72,7 @@ body.side-hidden .side{display:none}
 
 /* ---- worksheet */
 .sheet{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;background:var(--paper);position:relative;-webkit-overflow-scrolling:touch}
-.ws{max-width:1000px;margin:0 auto;padding:14px 24px 140px}
+.ws{max-width:none;margin:0;padding:14px 16px 140px 12px}
 .notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:4px 0 12px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;background:var(--fill);font-size:14px}
 .notice.bad{border-left-color:var(--red)}
 .notice ul{margin:4px 0 0;padding-left:18px;color:var(--sub);font-size:13px;flex-basis:100%}
@@ -97,7 +97,7 @@ textarea.code::placeholder{color:var(--sub);opacity:.6}
 .res .math{flex:1;min-width:0;text-align:center;overflow-x:auto;overflow-y:hidden;color:var(--out);padding:2px 0;font-size:1.06em}
 .res .math .katex-display{margin:.25em 0}
 .res .lbl{flex:none;min-width:34px;text-align:right;color:var(--sub);font:12px "JetBrains Mono",monospace}
-.res pre{flex:1;min-width:0;margin:2px 0;font:14px/1.5 "JetBrains Mono",monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text)}
+.res pre{flex:1;min-width:0;margin:2px 0;font:14px/1.5 "JetBrains Mono",monospace;white-space:pre;overflow-x:auto;color:var(--text)}
 .res .math pre{color:var(--out);text-align:center}
 .res.err pre{color:var(--red)}
 .res.warn pre{color:var(--c2)}
