@@ -17,6 +17,18 @@ from .examples import EXAMPLES
 STATIC = Path(__file__).parent / "static"
 HOST = "127.0.0.1"   # bewust niet configureerbaar: alleen lokaal
 MAX_BODY = 200_000
+_SIGS = None
+def _sigs(names):
+    """Korte hint per commando: eerste regel van de docstring (max 60 tekens)."""
+    global _SIGS
+    if _SIGS is None:
+        from .. import values
+        _SIGS = {}
+        for n in names:
+            d = (getattr(values.BUILTINS.get(n), "__doc__", None) or "").strip().split("\n")[0]
+            if d:
+                _SIGS[n] = d[:60]
+    return _SIGS
 MAX_UPLOAD = mwfile.MAX_BYTES
 _HITS = {}
 def _rate_ok(ip, limit=int(os.environ.get("MINIMAPLE_RATE", "60")), window=60):
@@ -79,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(EXAMPLES)
         if path == "/api/commands":
             b, pk = commands()
-            return self._json({"builtins": b, "packages": pk})
+            return self._json({"builtins": b, "packages": pk, "sigs": _sigs(b)})
         if path == "/api/help":
             q = parse_qs(urlparse(self.path).query)
             name = (q.get("name") or [""])[0].strip().lstrip("?").strip()[:80]
