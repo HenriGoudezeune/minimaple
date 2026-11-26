@@ -1,0 +1,162 @@
+# Bouwt de installers van mini-Maple en publiceert ze als GitHub Release (bij een tag v*).
+#   Windows: mini-Maple-setup.exe (Inno Setup) + mini-Maple-windows.zip (zonder installatie)
+#   macOS:   mini-Maple-macos-arm64.dmg, mini-Maple-macos-x86_64.dmg
+#   Linux:   mini-Maple-x86_64.AppImage, mini-maple_<versie>_amd64.deb (+ kopie mini-maple_amd64.deb)
+# Handmatig starten (workflow_dispatch) bouwt alles en bewaart het als artifacts, zonder release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYMM: "3.14"
+  UV_VERSION: "0.13.10"
+
+jobs:
+  windows-zip:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Bouw de Windows-staging en de zip
+        run: |
+          python -m pip install -q -r windows/requirements-win.txt
+          HOSTPY=python VERIFYPY=python bash windows/build.sh
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows-zip
+          path: windows/dist/mini-Maple-windows.zip
+          compression-level: 0
+
+  windows-setup:
+    needs: windows-zip
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v6
+        with:
+          name: windows-zip
+          path: windows/dist
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          Expand-Archive windows/dist/mini-Maple-windows.zip -DestinationPath windows/build
+          $ver = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME.TrimStart("v") } else { "0.0.0" }
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          if (-not (Test-Path $iscc)) { $iscc = (Get-Command iscc).Source }
+          & $iscc "/DAppVersion=$ver" windows/installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item windows/dist/mini-Maple-setup.exe | Format-List Name, Length
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows-setup
+          path: windows/dist/mini-Maple-setup.exe
+          compression-level: 0
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            uvplat: aarch64-apple-darwin
+            minos: "12.0"
+          - runner: macos-15-intel
+            arch: x86_64
+            uvplat: x86_64-apple-darwin
+            minos: "10.15"
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.minos }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Bouw de .app en de .dmg
+        run: |
+          python -m pip install -q "uv==$UV_VERSION"
+          test "$(uname -m)" = "${{ matrix.arch }}"
+          ver=0.0.0; [ "$GITHUB_REF_TYPE" = tag ] && ver="${GITHUB_REF_NAME#v}"
+          UV_PLATFORM=${{ matrix.uvplat }} bash packaging/posix/stage.sh "$RUNNER_TEMP/stage"
+          bash packaging/macos/make-dmg.sh "$RUNNER_TEMP/stage" "$ver" "mini-Maple-macos-${{ matrix.arch }}.dmg"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: macos-${{ matrix.arch }}
+          path: mini-Maple-macos-${{ matrix.arch }}.dmg
+          compression-level: 0
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Bouw AppImage en .deb
+        run: |
+          python -m pip install -q "uv==$UV_VERSION"
+          ver=0.0.0; [ "$GITHUB_REF_TYPE" = tag ] && ver="${GITHUB_REF_NAME#v}"
+          UV_PLATFORM=x86_64-manylinux_2_28 bash packaging/posix/stage.sh "$RUNNER_TEMP/stage"
+          bash packaging/linux/make-packages.sh "$RUNNER_TEMP/stage" "$ver" dist
+          dpkg-deb -I dist/mini-maple_amd64.deb
+      - name: Rooktest AppImage (headless)
+        run: |
+          export HOME="$RUNNER_TEMP/home" BROWSER=true APPIMAGE_EXTRACT_AND_RUN=1 MINIMAPLE_NO_INTEGRATE=1
+          mkdir -p "$HOME"
+          ./dist/mini-Maple-x86_64.AppImage & pid=$!
+          lock="$HOME/.local/state/mini-Maple/instance.json"
+          for i in $(seq 1 120); do [ -f "$lock" ] && break; sleep 1; done
+          port=$(python -c "import json,sys;print(json.load(open(sys.argv[1]))['port'])" "$lock")
+          curl -fsS -c jar "http://127.0.0.1:$port/" | grep -q "launcher/ping"
+          curl -fsS -b jar -H 'Content-Type: application/json' -d '{"code":"int(x^2,x);"}' "http://127.0.0.1:$port/api/eval" | tee out.json
+          grep -q 'x^3/3' out.json
+          kill "$pid" || true
+      - uses: actions/upload-artifact@v5
+        with:
+          name: linux
+          path: dist/*
+          compression-level: 0
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [windows-zip, windows-setup, macos, linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          ls -l dist
+          cat > notes.md <<'MD'
+          Offline installers van mini-Maple (eigen Python en rekenbibliotheken inbegrepen).
+
+          | Systeem | Bestand |
+          |---|---|
+          | Windows 10/11 (x64) | `mini-Maple-setup.exe` (of `mini-Maple-windows.zip` zonder installatie) |
+          | macOS Apple-chip (M1 en later) | `mini-Maple-macos-arm64.dmg` |
+          | macOS Intel | `mini-Maple-macos-x86_64.dmg` |
+          | Linux x86_64 | `mini-Maple-x86_64.AppImage` of `mini-maple_amd64.deb` |
+
+          De bestanden zijn niet digitaal ondertekend: Windows SmartScreen en macOS Gatekeeper vragen bij de eerste start een bevestiging. Uitleg: https://maple.hydrargyrum.be/download
+          MD
+          sed -i 's/^          //' notes.md
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" --title "mini-Maple ${TAG#v}" --notes-file notes.md --latest
+          fi
+          gh release upload "$TAG" --repo "$REPO" --clobber dist/*

@@ -427,9 +427,17 @@ def _operands(e):
         return [sp.Basic.__new__(sp.Equality, k, v) for k, v in e.items()]
     if isinstance(e, sp.Rational) and not isinstance(e, sp.Integer):
         return [sp.Integer(e.p), sp.Integer(e.q)]
-    if isinstance(e, sp.Basic):
-        if isinstance(e, sp.Function) and False:
+    if isinstance(e, sp.Add):
+        try:
+            return list(e.as_ordered_terms())          # zelfde volgorde als de uitvoer (x^2 + 1)
+        except Exception:
             return list(e.args)
+    if isinstance(e, sp.Mul):
+        try:
+            return list(e.as_ordered_factors())
+        except Exception:
+            return list(e.args)
+    if isinstance(e, sp.Basic):
         return list(e.args) if e.args else [e]
     return [e]
 
@@ -1194,10 +1202,13 @@ def _text(v):
 
 @core("cat")
 def cat(ctx, *a):
+    """Maple: het resultaat heeft het type van het eerste argument (string -> string, anders naam)."""
     s = "".join(_text(x) for x in a)
-    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", s):
-        return sp.Symbol(s) if not any(isinstance(x, Str) for x in a) else sp.Symbol(s)
-    return Str(s)
+    if a and isinstance(a[0], Str):
+        return Str(s)
+    if not a:
+        return Str("")
+    return sp.Symbol(s)
 
 
 @core("length")
@@ -1440,3 +1451,510 @@ def _convert_wrapper(ctx, x, t, *rest):
 
 
 _convert_wrapper.prev = None
+
+
+# ------------------------------------------------------------------ operatoren als functies: `+`(a,b), `if`(...)
+def _binop_fn(op):
+    def f(ctx, *a):
+        if op in ("+", "*") and not a:
+            return sp.Integer(0 if op == "+" else 1)
+        if op == "-" and len(a) == 1:
+            return -a[0]
+        if len(a) == 1 and op in ("+", "*"):
+            return a[0]
+        acc = a[0]
+        for x in a[1:]:
+            acc = ctx.binop(op, acc, x)
+        return acc
+    return f
+
+
+for _op in ("+", "*", "-", "/", "^", "=", "<>", "<", "<=", ">", ">=", "union", "intersect", "minus", ".", "@", "mod",
+            "subset", "in"):
+    CORE[_op] = _binop_fn(_op)
+
+
+@core("and")
+def _and_fn(ctx, *a):
+    return ctx.ev(("bin", "and", ("_v", a[0]), ("_v", a[1]))) if len(a) == 2 else B(all(truth(ctx, x) for x in a))
+
+
+@core("or")
+def _or_fn(ctx, *a):
+    return ctx.ev(("bin", "or", ("_v", a[0]), ("_v", a[1]))) if len(a) == 2 else B(any(truth(ctx, x) for x in a))
+
+
+@core("not")
+def _not_fn(ctx, x):
+    t = truth(ctx, x)
+    return sp.Not(x) if t is None else B(not t)
+
+
+@core("[]")
+def _list_fn(ctx, *a):
+    return MList(a)
+
+
+@core("{}")
+def _set_fn(ctx, *a):
+    return mkset(a)
+
+
+@core("..")
+def _range_fn(ctx, a, b):
+    return RangeB(a, b)
+
+
+@core("!")
+def _fact_fn(ctx, a):
+    return sp.factorial(a)
+
+
+# ------------------------------------------------------------------ subsop
+@core("subsop")
+def subsop(ctx, *a):
+    if len(a) < 2:
+        raise MapleError("invalid input: subsop expects at least two arguments")
+    e = a[-1]
+    for spec in a[:-1]:
+        if not (isinstance(spec, sp.Equality) or type(spec).__name__ == "Equality"):
+            raise MapleError(f"invalid input: subsop expects equations i = value, but received {T(spec)}")
+        idx, val = spec.args[0], spec.args[1]
+        path = list(idx) if isinstance(idx, (list, tuple)) else [idx]
+        e = _subsop1(e, [pyint(i) for i in path], val)
+    return e
+
+
+def _subsop1(e, path, val):
+    i = path[0]
+    if len(path) > 1:
+        sub = op(None, sp.Integer(i), e)
+        val = _subsop1(sub, path[1:], val)
+    if isinstance(e, (MList, MSet)):
+        items = list(e)
+        j = i + len(items) + 1 if i < 0 else i
+        if not 1 <= j <= len(items):
+            raise MapleError("improper op or subscript selector")
+        new = items[:j - 1] + (list(val) if isinstance(val, Seq) else [val]) + items[j:]
+        return MList(new) if isinstance(e, MList) else mkset(new)
+    if isinstance(e, sp.Basic):
+        if i == 0:
+            if isinstance(val, sp.Symbol):
+                fn = {"+": sp.Add, "*": sp.Mul, "^": sp.Pow}.get(val.name) or sp.Function(val.name)
+                return fn(*e.args)
+            return val(*e.args) if callable(val) else e
+        ops = _operands(e)
+        j = i + len(ops) + 1 if i < 0 else i
+        if not 1 <= j <= len(ops):
+            raise MapleError("improper op or subscript selector")
+        ops[j - 1] = val
+        if isinstance(e, sp.Rational) and not isinstance(e, sp.Integer):
+            return sp.Rational(ops[0], ops[1]) if all(isinstance(x, sp.Integer) for x in ops) else ops[0] / ops[1]
+        if isinstance(e, (sp.Equality,)) or type(e).__name__ in ("Equality", "Unequality"):
+            return type(e)(*ops, evaluate=False) if isinstance(e, sp.Basic) else e
+        if isinstance(e, sp.core.relational.Relational):
+            return type(e)(*ops)
+        try:
+            return e.func(*ops)
+        except Exception as ex:
+            raise MapleError(f"subsop: cannot substitute: {ex}")
+    raise MapleError("invalid input: subsop")
+
+
+# ------------------------------------------------------------------ rtable-grenzen
+@core("upperbound")
+def _ubound(ctx, A, d=None):
+    return _bounds(ctx, A, d, True)
+
+
+@core("lowerbound")
+def _lbound(ctx, A, d=None):
+    return _bounds(ctx, A, d, False)
+
+
+def _bounds(ctx, A, d, upper):
+    if isinstance(A, sp.MatrixBase):
+        if A.cols == 1 or A.rows == 1:
+            dims = [A.rows * A.cols]
+        else:
+            dims = [A.rows, A.cols]
+    elif isinstance(A, (MList, Str)):
+        dims = [len(A)]
+    else:
+        raise MapleError(f"invalid input: expected an rtable, but received {T(A)}")
+    vals = [sp.Integer(n if upper else 1) for n in dims]
+    if d is not None:
+        return vals[pyint(d) - 1]
+    return Seq(vals) if len(vals) > 1 else vals[0]
+
+
+# ------------------------------------------------------------------ StringTools
+def _s(x):
+    if isinstance(x, Str) or isinstance(x, str):
+        return str(x)
+    if isinstance(x, sp.Symbol):
+        return x.name
+    return T(x)
+
+
+def _st(names):
+    return core(*names, pkg="StringTools")
+
+
+@_st(["Length"])
+def st_length(ctx, s):
+    return sp.Integer(len(_s(s)))
+
+
+@_st(["SubString"])
+def st_substring(ctx, s, r):
+    t = _s(s)
+    n = len(t)
+    if isinstance(r, Range):
+        lo = 1 if r.lo is None else pyint(r.lo)
+        hi = n if r.hi is None else pyint(r.hi)
+    else:
+        lo = hi = pyint(r)
+    lo = lo + n + 1 if lo < 0 else lo
+    hi = hi + n + 1 if hi < 0 else hi
+    return Str(t[max(lo, 1) - 1:max(hi, 0)])
+
+
+@_st(["Split"])
+def st_split(ctx, s, sep=None):
+    t = _s(s)
+    if sep is None:
+        return MList([Str(x) for x in t.split()])
+    seps = _s(sep)
+    out, cur = [], ""
+    for ch in t:
+        if ch in seps:
+            out.append(Str(cur))
+            cur = ""
+        else:
+            cur += ch
+    out.append(Str(cur))
+    return MList(out)
+
+
+@_st(["Join"])
+def st_join(ctx, L, sep=Str(" ")):
+    if all(isinstance(x, str) for x in L) and isinstance(sep, str):
+        return Str(_s(sep).join(_s(x) for x in L))
+    out = []                                        # ListTools:-Join(L, x): x tussen de elementen
+    for i, x in enumerate(L):
+        if i:
+            out.append(sep)
+        out.append(x)
+    return MList(out)
+
+
+@_st(["Search", "SearchText"])
+def st_search(ctx, pat, s, *rest):
+    if isinstance(s, (MList, sp.MatrixBase)):            # ListTools:-Search(x, L)
+        for i, x in enumerate(list(s)):
+            if same(x, pat):
+                return sp.Integer(i + 1)
+        return sp.Integer(0)
+    return sp.Integer(_s(s).find(_s(pat)) + 1)
+
+
+@_st(["SearchAll"])
+def st_searchall(ctx, pat, s):
+    if isinstance(s, (MList, sp.MatrixBase)):
+        return Seq([sp.Integer(i + 1) for i, x in enumerate(list(s)) if same(x, pat)])
+    t, p_, out, i = _s(s), _s(pat), [], 0
+    while p_:
+        j = t.find(p_, i)
+        if j < 0:
+            break
+        out.append(sp.Integer(j + 1))
+        i = j + 1
+    return Seq(out)
+
+
+@_st(["UpperCase"])
+def st_upper(ctx, s, *r):
+    return Str(_s(s).upper())
+
+
+@_st(["LowerCase"])
+def st_lower(ctx, s, *r):
+    return Str(_s(s).lower())
+
+
+@_st(["Reverse"])
+def st_reverse(ctx, s):
+    if isinstance(s, MList):                              # ListTools:-Reverse
+        return MList(list(s)[::-1])
+    return Str(_s(s)[::-1])
+
+
+@_st(["Substitute"])
+def st_subst(ctx, s, a, b):
+    return Str(_s(s).replace(_s(a), _s(b), 1))
+
+
+@_st(["SubstituteAll"])
+def st_substall(ctx, s, a, b):
+    return Str(_s(s).replace(_s(a), _s(b)))
+
+
+@_st(["IsPrefix"])
+def st_isprefix(ctx, a, s):
+    return B(_s(s).startswith(_s(a)))
+
+
+@_st(["IsSuffix"])
+def st_issuffix(ctx, a, s):
+    return B(_s(s).endswith(_s(a)))
+
+
+@_st(["Trim"])
+def st_trim(ctx, s):
+    return Str(_s(s).strip())
+
+
+@_st(["TrimLeft"])
+def st_triml(ctx, s):
+    return Str(_s(s).lstrip())
+
+
+@_st(["TrimRight"])
+def st_trimr(ctx, s):
+    return Str(_s(s).rstrip())
+
+
+@_st(["Explode"])
+def st_explode(ctx, s):
+    return MList([Str(c) for c in _s(s)])
+
+
+@_st(["Implode"])
+def st_implode(ctx, L):
+    return Str("".join(_s(x) for x in L))
+
+
+@_st(["Repeat"])
+def st_repeat(ctx, s, n):
+    return Str(_s(s) * pyint(n))
+
+
+@_st(["Ord"])
+def st_ord(ctx, s):
+    return sp.Integer(ord(_s(s)[0]))
+
+
+@_st(["Char"])
+def st_char(ctx, n):
+    return Str(chr(pyint(n)))
+
+
+@_st(["Has"])
+def st_has(ctx, s, p_):
+    return B(_s(p_) in _s(s))
+
+
+@_st(["CountCharacterOccurrences"])
+def st_count(ctx, s, c):
+    return sp.Integer(_s(s).count(_s(c)))
+
+
+@_st(["IsDigit"])
+def st_isdigit(ctx, s):
+    return B(_s(s).isdigit() and len(_s(s)) > 0)
+
+
+@_st(["IsAlpha"])
+def st_isalpha(ctx, s):
+    return B(_s(s).isalpha())
+
+
+@_st(["Capitalize"])
+def st_cap(ctx, s):
+    t = _s(s)
+    return Str(t[:1].upper() + t[1:])
+
+
+@_st(["FormatMessage"])
+def st_formatmessage(ctx, *a):
+    a = list(a[0]) if len(a) == 1 and isinstance(a[0], Seq) else list(a)
+    if a and isinstance(a[0], (Str, str)):
+        return Str(ctx.format_msg(a))
+    return Str(" ".join(_s(x) for x in a))
+
+
+@_st(["Fill"])
+def st_fill(ctx, c, n):
+    return Str(_s(c) * pyint(n))
+
+
+# ------------------------------------------------------------------ ListTools
+def _lt(names):
+    return core(*names, pkg="ListTools")
+
+
+def _flatten(L, once=False):
+    out = []
+    for x in L:
+        if isinstance(x, MList):
+            out.extend(list(x) if once else _flatten(x))
+        else:
+            out.append(x)
+    return out
+
+
+@_lt(["Flatten"])
+def lt_flatten(ctx, L, *depth):
+    return MList(_flatten(L))
+
+
+@_lt(["FlattenOnce"])
+def lt_flatten1(ctx, L):
+    return MList(_flatten(L, once=True))
+
+
+@_lt(["MakeUnique"])
+def lt_unique(ctx, L, *r):
+    out = []
+    for x in L:
+        if not any(same(x, y) for y in out):
+            out.append(x)
+    return MList(out)
+
+
+@_lt(["Rotate"])
+def lt_rotate(ctx, L, n=sp.Integer(1)):
+    k = pyint(n) % len(L) if len(L) else 0
+    return MList(list(L)[k:] + list(L)[:k])
+
+
+@_lt(["PartialSums"])
+def lt_psums(ctx, L):
+    out, acc = [], sp.Integer(0)
+    for x in L:
+        acc = acc + x
+        out.append(acc)
+    return MList(out)
+
+
+@_lt(["Enumerate"])
+def lt_enum(ctx, L):
+    return MList([MList([sp.Integer(i + 1), x]) for i, x in enumerate(L)])
+
+
+@_lt(["Interleave"])
+def lt_interleave(ctx, *Ls):
+    out = []
+    for i in range(max(len(L) for L in Ls)):
+        for L in Ls:
+            if i < len(L):
+                out.append(L[i])
+    return MList(out)
+
+
+@_lt(["Occurrences"])
+def lt_occ(ctx, x, L):
+    return sp.Integer(sum(1 for y in L if same(x, y)))
+
+
+@_lt(["SelectFirst"])
+def lt_selfirst(ctx, *a):
+    if isinstance(a[0], sp.Integer) and len(a) >= 3:
+        n, f, L = pyint(a[0]), a[1], a[2]
+    else:
+        n, f, L = None, a[0], a[1]
+    out = []
+    for x in L:
+        if truth(ctx, ctx.call(f, x)):
+            out.append(x)
+            if n is None or len(out) >= n:
+                break
+    if n is None:
+        return out[0] if out else Seq()
+    return MList(out)
+
+
+@_lt(["BinarySearch"])
+def lt_bsearch(ctx, L, x, *r):
+    for i, y in enumerate(L):
+        if same(x, y):
+            return sp.Integer(i + 1)
+    return sp.Integer(0)
+
+
+@_lt(["Transpose"])
+def lt_transpose(ctx, L):
+    if isinstance(L, sp.MatrixBase):
+        return L.T
+    return MList([MList(list(r)) for r in zip(*L)])
+
+
+@_lt(["LengthSplit"])
+def lt_lsplit(ctx, L, n):
+    k = pyint(n)
+    return Seq([MList(list(L)[i:i + k]) for i in range(0, len(L), k)])
+
+
+@_lt(["FindRepetitions"])
+def lt_reps(ctx, L, *r):
+    out = []
+    for x in L:
+        if sum(1 for y in L if same(x, y)) > 1 and not any(same(x, y) for y in out):
+            out.append(x)
+    return MList(out)
+
+
+@_lt(["Sorted"])
+def lt_sorted(ctx, L, *r):
+    try:
+        return B(all(bool(a <= b) for a, b in zip(list(L), list(L)[1:])))
+    except TypeError:
+        return sp.Symbol("FAIL")
+
+
+@_lt(["Categorize"])
+def lt_categorize(ctx, f, L):
+    groups = []
+    for x in L:
+        for g in groups:
+            if truth(ctx, ctx.call(f, x, g[0])):
+                g.append(x)
+                break
+        else:
+            groups.append([x])
+    return Seq([MList(g) for g in groups])
+
+
+@_lt(["Classify"])
+def lt_classify(ctx, f, L):
+    t = Table()
+    for x in L:
+        k = ctx.call(f, x)
+        t.setdefault(k, MSet())
+        if not any(same(x, y) for y in t[k]):
+            t[k].append(x)
+    return t
+
+
+@_lt(["DotProduct"])
+def lt_dot(ctx, a, b):
+    return sum((x * y for x, y in zip(a, b)), sp.Integer(0))
+
+
+@_lt(["Group"])
+def lt_group(ctx, L, f=None):
+    out = []
+    for x in L:
+        if out and (truth(ctx, ctx.call(f, out[-1][-1], x)) if f is not None else same(out[-1][-1], x)):
+            out[-1].append(x)
+        else:
+            out.append([x])
+    return MList([MList(g) for g in out])
+
+
+PACKAGES_EXTRA_ALIASES = {"ListTools": ["Reverse", "Search", "SearchAll", "Join"]}
+for _pk, _ns in PACKAGES_EXTRA_ALIASES.items():
+    for _n in _ns:
+        if _n not in _PKG.setdefault(_pk, []):
+            _PKG[_pk].append(_n)

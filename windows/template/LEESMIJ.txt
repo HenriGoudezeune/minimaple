@@ -1,0 +1,35 @@
+mini-Maple voor Windows (offline)
+=================================
+
+Installeren
+  1. Pak de zip volledig uit, bv. naar Documenten\mini-Maple
+     (rechtsklik op de zip > Alles uitpakken). Niet starten vanuit de zip zelf.
+  2. Dubbelklik mini-Maple.vbs.
+     mini-Maple opent in een eigen venster (Microsoft Edge in app-modus).
+     De eerste start kan 10 tot 30 seconden duren.
+  3. Sluit je het venster, dan stopt mini-Maple vanzelf.
+
+Alles draait lokaal op je eigen pc (127.0.0.1). Er is geen internet nodig
+en er wordt niets geinstalleerd.
+
+Extra (optioneel)
+  snelkoppeling-maken.vbs     snelkoppeling op het bureaublad en in het Startmenu
+  bestandskoppeling-aan.vbs   .mw- en .mpl-bestanden openen met mini-Maple
+  bestandskoppeling-uit.vbs   die koppeling weer verwijderen
+  mini-Maple.bat              starten met zichtbaar zwart venster (voor foutzoeken)
+
+Een .mw/.mpl-bestand openen
+  Sleep het bestand op mini-Maple.vbs, of gebruik de bestandskoppeling.
+  mini-Maple toont het werkblad; uitvoeren doe je zelf.
+
+Problemen
+  - Windows SmartScreen of een virusscanner kan bij de eerste start vragen of
+    je het script vertrouwt: kies "Toch uitvoeren".
+  - Geen Edge of Chrome? Dan opent mini-Maple in je standaardbrowser. Laat
+    het tabblad open; de server stopt ongeveer 10 minuten nadat je het sluit.
+  - Logbestand: %LOCALAPPDATA%\mini-Maple\launcher.log
+  - Gegevens van het venster (historiek): %LOCALAPPDATA%\mini-Maple\browser-profiel
+
+Verwijderen
+  Voer eerst bestandskoppeling-uit.vbs uit (als je die gebruikte), verwijder
+  daarna de map, de snelkoppelingen en %LOCALAPPDATA%\mini-Maple.

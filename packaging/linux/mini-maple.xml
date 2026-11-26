@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-maple-worksheet">
+    <comment>Maple-werkblad</comment>
+    <comment xml:lang="en">Maple worksheet</comment>
+    <icon name="mini-maple"/>
+    <glob pattern="*.mw" weight="60"/>
+  </mime-type>
+  <mime-type type="text/x-maple-source">
+    <comment>Maple-broncode</comment>
+    <comment xml:lang="en">Maple source code</comment>
+    <sub-class-of type="text/plain"/>
+    <icon name="mini-maple"/>
+    <glob pattern="*.mpl" weight="60"/>
+  </mime-type>
+</mime-info>

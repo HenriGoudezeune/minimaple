@@ -6,7 +6,7 @@ import sympy as sp
 
 from .values import (BUILTINS, PACKAGES, Ctx, MList, MSet, Seq, Range, Str, Table, Plot, MImage, split_opts)
 from . import objs as _objs
-from .objs import (MapleError, RangeB, Scope, MProc, Composition, Repeat, DOp, PyFn, TypeDecl, MISSING,
+from .objs import (MapleError, RangeB, Scope, MProc, MModule, Composition, Repeat, DOp, PyFn, TypeDecl, MISSING,
                    ReturnEx, BreakEx, NextEx)
 from .objs import mkset as _mkset, same as _same_o
 from .parser import parse, ParseError
@@ -41,6 +41,11 @@ def is_numlit(x):
 
 
 _OPCALL = (MProc, Composition, Repeat)
+# builtins die algebraische expressies verwachten: een procedurenaam als argument blijft een naam
+_ALGEBRAIC_BUILTINS = {"coeff", "coeffs", "degree", "ldegree", "lcoeff", "tcoeff", "collect", "series", "taylor", "subs",
+                       "solve", "fsolve", "isolate", "eliminate", "expand", "simplify", "factor", "normal", "numer",
+                       "denom", "indets", "has", "hastype", "algsubs", "combine", "convert", "rhs", "lhs"}
+_LASTNAME_OPS = {"+", "-", "*", "/", "^", "=", "<>"}
 _VALIDATE_NAMES = {'solve', 'fsolve', 'isolate', 'dsolve', 'pdsolve', 'diff', 'Diff', 'int', 'integrate', 'Int',
                    'limit', 'Limit', 'series', 'taylor'}
 
@@ -53,7 +58,8 @@ class Interpreter(Ctx):
         self.special = {
             "seq": self.sf_seq, "add": self.sf_add, "mul": self.sf_mul, "assigned": self.sf_assigned,
             "unassign": self.sf_unassign, "restart": self.sf_restart, "with": self.sf_with,
-            "error": self.sf_error, "RETURN": self.sf_return, "Digits": None,
+            "error": self.sf_error, "RETURN": self.sf_return, "Digits": None, "if": self.sf_if,
+            "evaln": self.sf_evaln,
         }
         del self.special["Digits"]
 
@@ -226,11 +232,19 @@ class Interpreter(Ctx):
             except Exception:
                 return v
         if isinstance(v, (MList, MSet, Seq)):
-            new = [self.full(x, depth + 1) for x in v]
+            new = [self._full_elem(x, depth + 1) for x in v]
             if all(a is b for a, b in zip(new, v)):
                 return v
             return type(v)(new)
         return v
+
+    def _full_elem(self, x, depth):
+        """Element van een lijst/reeks: namen van procedures/modules/tabellen blijven namen (last-name evaluation)."""
+        if isinstance(x, sp.Symbol):
+            val = self.getvar(x.name)
+            if isinstance(val, (MProc, MModule, Table, Composition, Repeat)):
+                return x
+        return self.full(x, depth)
 
     # ------------------------------------------------------------ run
     def run(self, code):
@@ -490,8 +504,120 @@ class Interpreter(Ctx):
         rs = r.name if isinstance(r, sp.Symbol) else printer.to_text(r)
         return l[1] + rs
 
+    def _module_of(self, node):
+        """Waarde van de linkerkant van A:-f als die een module is, anders None."""
+        try:
+            if node[0] == "name":
+                v = self.getvar(node[1])
+                if v is MISSING:
+                    return None
+                v = self.full(v) if not isinstance(v, MModule) else v
+            else:
+                v = self.ev(node)
+        except MapleError:
+            return None
+        return v if isinstance(v, MModule) else None
+
+    def ev_module(self, n):
+        info = n[1]
+        scope = Scope(parent=self.scope)
+        scope.locals = set(info["locals"]) | set(info["exports"])
+        scope.globals = set(info["globals"])
+        m = MModule(scope, info["exports"], info["locals"], info["options"], info["src"], info["name"])
+        saved = self.scope
+        self.scope = scope
+        try:
+            self.block(info["body"])
+        except ReturnEx:
+            pass
+        finally:
+            self.scope = saved
+        for e in m.exports:
+            v = scope.vars.get(e)
+            if isinstance(v, MProc) and v.name is None:
+                v.name = e
+        return m
+
+    def _use_bindings(self, binds):
+        out = {}
+        for b in binds:
+            if b[0] == "bin" and b[1] == "=" and b[2][0] == "name":
+                out[b[2][1]] = self.ev(b[3])
+                continue
+            m = self._module_of(b)
+            if m is not None:
+                for e in m.exports:
+                    if e in m.scope.vars:
+                        out[e] = m.scope.vars[e]
+                continue
+            nm = self._nm(b)
+            if nm is not None and (nm in PACKAGES or nm.lower() in KNOWN_PACKAGES):
+                continue            # pakketfuncties zijn globaal beschikbaar
+            raise MapleError(f"invalid use binding: {printer.to_text(self.ev(b))}")
+        return out
+
+    def ev_use(self, n):
+        binds = self._use_bindings(n[1])
+        if not binds:
+            return self.block(n[2])
+        scope = Scope(parent=self.scope, vars=dict(binds))
+        scope.locals = set()
+        saved = self.scope
+        self.scope = scope
+        try:
+            return self.block(n[2])
+        finally:
+            self.scope = saved
+
+    def ev_elembin(self, n):
+        op = n[1]
+        a, b = self.ev(n[2]), self.ev(n[3])
+        return self.elem_binop(op, a, b)
+
+    def elem_binop(self, op, a, b):
+        def f(x, y):
+            if op == "and":
+                return self.ev(("bin", "and", ("_v", x), ("_v", y)))
+            if op == "or":
+                return self.ev(("bin", "or", ("_v", x), ("_v", y)))
+            if op in ("||",):
+                return self.ev(("concat", ("_v", x), ("_v", y)))
+            r = self.binop(op, x, y)
+            return r
+        ca = isinstance(a, (MList, MSet, sp.MatrixBase, Table))
+        cb = isinstance(b, (MList, MSet, sp.MatrixBase, Table))
+        if ca and cb:
+            if isinstance(a, sp.MatrixBase) and isinstance(b, sp.MatrixBase):
+                if a.shape != b.shape:
+                    raise MapleError("elementwise operation: dimensions of the operands do not match")
+                return sp.Matrix(a.rows, a.cols, [f(x, y) for x, y in zip(a, b)])
+            la, lb = list(a), list(b)
+            if len(la) != len(lb):
+                raise MapleError("elementwise operation: containers must have the same number of elements")
+            res = [f(x, y) for x, y in zip(la, lb)]
+            if isinstance(a, sp.MatrixBase):
+                return sp.Matrix(a.rows, a.cols, res)
+            return self.mkset(res) if isinstance(a, MSet) else MList(res)
+        if ca or cb:
+            c = a if ca else b
+            g = (lambda x: f(x, b)) if ca else (lambda y: f(a, y))
+            if isinstance(c, sp.MatrixBase):
+                return sp.Matrix(c.rows, c.cols, [g(x) for x in c])
+            res = [g(x) for x in c]
+            return self.mkset(res) if isinstance(c, MSet) else MList(res)
+        return f(a, b)
+
+    def ev__v(self, n):
+        return n[1]
+
     def ev_modget(self, n):
         f = n[2][1]
+        m = self._module_of(n[1])
+        if m is not None:
+            if f not in m.exports:
+                raise MapleError(f"module does not export `{f}`")
+            v = m.scope.vars.get(f, MISSING)
+            return self.sym(f) if v is MISSING else v
         if f in BUILTINS:
             return self.sym(f)
         v = self.getvar(f)
@@ -515,7 +641,7 @@ class Interpreter(Ctx):
     # ------------------------------------------------------------ operatoren
     def ev_un(self, n):
         op = n[1]
-        x = self.ev(n[2])
+        x = self._ev_operand(n[2]) if op == "-" else self.ev(n[2])
         if op == "-":
             if isinstance(x, (sp.Basic, sp.MatrixBase)):
                 return -x
@@ -629,11 +755,36 @@ class Interpreter(Ctx):
             if tb is False:
                 return a
             return sp.Or(a, b)
-        a = self.ev(n[2])
-        b = self.ev(n[3])
+        if op in _LASTNAME_OPS:
+            a = self._ev_operand(n[2])
+            b = self._ev_operand(n[3])
+        else:
+            a = self.ev(n[2])
+            b = self.ev(n[3])
         return self.binop(op, a, b)
 
+    def _evs_lastname(self, nodes):
+        out = []
+        for n in nodes:
+            v = self._ev_operand(n)
+            if isinstance(v, Seq):
+                out.extend(v)
+            elif v is not None:
+                out.append(v)
+        return out
+
+    def _ev_operand(self, node):
+        """Last-name evaluation: een naam die naar een procedure/module/tabel wijst blijft in rekenkundige
+        uitdrukkingen een naam (f + g, AA/p, 2*f), zoals in Maple."""
+        if node[0] == "name":
+            v = self.getvar(node[1])
+            if isinstance(v, (MProc, MModule, Table, Composition, Repeat)):
+                return sp.Symbol(node[1])
+        return self.ev(node)
+
     def binop(self, op, a, b):
+        if op == "=" and (isinstance(a, Seq) or isinstance(b, Seq)):
+            return sp.Basic.__new__(sp.Equality, a, b)
         if isinstance(a, Seq) or isinstance(b, Seq):
             if op in "+-*/^" and isinstance(a, Seq) and len(a) == 0 or isinstance(b, Seq) and len(b) == 0:
                 raise MapleError("invalid operands: NULL")
@@ -1170,9 +1321,20 @@ class Interpreter(Ctx):
             except (MapleError, ZeroDivisionError, TypeError, ValueError, KeyError, ArithmeticError) as e:
                 msg = str(e) if isinstance(e, MapleError) else (
                     "numeric exception: division by zero" if isinstance(e, ZeroDivisionError) else self._pyerr(e))
+                import re as _re
+                bare = _re.sub(r"^(\(in [^)]*\) )+", "", msg)
+                where = _re.match(r"^\(in ([^)]*)\)", msg)
                 for pats, cb in catches:
-                    if not pats or any(p in msg for p in pats):
+                    if not pats or any(bare.startswith(p) or p in msg for p in pats):
                         self._lasterror = msg
+                        fmt = getattr(e, "mfmt", None)
+                        eargs = getattr(e, "margs", None)
+                        if fmt is None:
+                            fmt, eargs = bare, []
+                        le = Seq([sp.Symbol(where.group(1)) if where else sp.Integer(0), Str(fmt)] + list(eargs))
+                        self.env["lastexception"] = le
+                        self.env["lasterror"] = Str(bare)
+                        self._last_exc = e
                         return self.block(cb)
                 raise
         finally:
@@ -1226,7 +1388,7 @@ class Interpreter(Ctx):
 
         def walk(x):
             if isinstance(x, tuple):
-                if x and x[0] in ("proc", "arrow"):
+                if x and x[0] in ("proc", "arrow", "module"):
                     return
                 if x and x[0] == "assign":
                     t = x[1]
@@ -1255,8 +1417,9 @@ class Interpreter(Ctx):
     def ev_proc(self, n):
         info = n[1]
         p = MProc(params=info["params"], body=info["body"], closure=self.scope, locals_=info["locals"],
-                  globals_=info["globals"], options=info["options"], src=info["src"], rettype=info["rettype"])
-        declared = {q[0] for q in p.params} | p.locals | p.globals
+                  globals_=info["globals"], options=info["options"], src=info["src"], rettype=info["rettype"],
+                  kwparams=info.get("kwparams", ()), dollar=info.get("dollar", False))
+        declared = {q[0] for q in p.params} | {q[0] for q in p.kwparams} | p.locals | p.globals
         assigned = self._assigned_names(info["body"], id(info))
         enclosing = set()
         s = self.scope
@@ -1288,22 +1451,7 @@ class Interpreter(Ctx):
         self.scope = scope
         self.depth += 1
         try:
-            scope.vars["args"] = Seq(args)
-            scope.vars["nargs"] = sp.Integer(len(args))
-            for i, (pname, typ, dflt) in enumerate(p.params):
-                if i < len(args):
-                    val = args[i]
-                    if typ is not None:
-                        tv = self.ev(typ)
-                        from .core_fns import check_type
-                        if not check_type(self, val, tv):
-                            ordn = {1: "1st", 2: "2nd", 3: "3rd"}.get(i + 1, f"{i + 1}th")
-                            raise MapleError(f"invalid input: {p.name or 'procedure'} expects its {ordn} argument, "
-                                             f"{pname}, to be of type {printer.to_text(tv)}, but received {printer.to_text(val)}")
-                    scope.vars[pname] = val
-                    scope.pvals[pname] = val
-                elif dflt is not None:
-                    scope.vars[pname] = self.ev(dflt)
+            self._bind_params(p, scope, args)
             if p.arrow:
                 res = self.ev(p.body)
             else:
@@ -1314,7 +1462,9 @@ class Interpreter(Ctx):
         except MapleError as e:
             msg = str(e)
             if p.name and not msg.startswith("(in "):
-                raise MapleError(f"(in {p.name}) {msg}") from None
+                ne = MapleError(f"(in {p.name}) {msg}")
+                ne.mfmt, ne.margs = getattr(e, "mfmt", None), getattr(e, "margs", None)
+                raise ne from None
             raise
         finally:
             self.scope = saved
@@ -1322,6 +1472,69 @@ class Interpreter(Ctx):
         if key is not None and p.memo is not None:
             p.memo[key] = res
         return res
+
+    def _bind_params(self, p, scope, args):
+        from .core_fns import check_type
+        scope.vars["args"] = Seq(args)
+        scope.vars["nargs"] = sp.Integer(len(args))
+        scope.vars["_passed"] = Seq(args)
+        scope.vars["_npassed"] = sp.Integer(len(args))
+        scope.vars["procname"] = sp.Symbol(p.name) if p.name else p
+        pname_ = p.name or "procedure"
+        # keyword-parameters {k := v} halen we eerst uit de argumenten (waar ze ook staan)
+        kwnames = {k[0]: k for k in p.kwparams}
+        if kwnames:
+            rest = []
+            for a in args:
+                key = None
+                if isinstance(a, sp.Equality) or type(a).__name__ == "Equality":
+                    l = a.args[0]
+                    if isinstance(l, sp.Symbol) and l.name in kwnames:
+                        key, val = l.name, a.args[1]
+                    elif isinstance(l, Str) and str(l) in kwnames:
+                        key, val = str(l), a.args[1]
+                elif isinstance(a, sp.Symbol) and a.name in kwnames:
+                    key, val = a.name, sp.true        # `opt` als afkorting van opt = true
+                if key is None:
+                    rest.append(a)
+                    continue
+                typ = kwnames[key][1]
+                if typ is not None and not check_type(self, val, self.ev(typ)):
+                    raise MapleError(f"invalid input: {pname_} expects value for keyword parameter {key} to be of type "
+                                     f"{printer.to_text(self.ev(typ))}, but received {printer.to_text(val)}")
+                scope.vars[key] = val
+            args = rest
+            for k, typ, dflt in p.kwparams:
+                if k not in scope.vars:
+                    if dflt is not None:
+                        scope.vars[k] = self.ev(dflt)
+            scope.vars["_options"] = Seq([sp.Eq(sp.Symbol(k), scope.vars[k], evaluate=False)
+                                         for k, _, _ in p.kwparams if k in scope.vars and
+                                         isinstance(scope.vars[k], sp.Basic)])
+        ai = 0
+        for i, (pname, typ, dflt) in enumerate(p.params):
+            if ai < len(args):
+                val = args[ai]
+                if typ is not None:
+                    tv = self.ev(typ)
+                    if not check_type(self, val, tv):
+                        if dflt is not None:      # optioneel geordend parameter: default nemen, arg doorschuiven
+                            scope.vars[pname] = self.ev(dflt)
+                            continue
+                        ordn = {1: "1st", 2: "2nd", 3: "3rd"}.get(i + 1, f"{i + 1}th")
+                        raise MapleError(f"invalid input: {pname_} expects its {ordn} argument, "
+                                         f"{pname}, to be of type {printer.to_text(tv)}, but received {printer.to_text(val)}")
+                scope.vars[pname] = val
+                scope.pvals[pname] = val
+                ai += 1
+            elif dflt is not None:
+                scope.vars[pname] = self.ev(dflt)
+        extra = list(args[ai:])
+        if p.dollar and extra:
+            raise MapleError(f"invalid input: too many and/or wrong type of arguments passed to {pname_}; "
+                             f"first unused argument is {printer.to_text(extra[0])}")
+        scope.vars["_rest"] = Seq(extra)
+        scope.vars["_nrest"] = sp.Integer(len(extra))
 
     # ------------------------------------------------------------ aanroepen
     def eval_args(self, nodes):
@@ -1340,6 +1553,8 @@ class Interpreter(Ctx):
                 sf = self.special.get(nm)
                 if sf is not None:
                     return sf(argn)
+                if nm in _ALGEBRAIC_BUILTINS:
+                    return self.call_name(nm, self._evs_lastname(argn))
                 return self.call_name(nm, self.evs(argn))
             f = self.full(raw)
             return self.apply(f, self.evs(argn), nm)
@@ -1347,6 +1562,15 @@ class Interpreter(Ctx):
             return self.call_indexed(head, argn)
         if k == "modget":
             f = head[2][1]
+            m = self._module_of(head[1])
+            if m is not None:
+                if f not in m.exports:
+                    raise MapleError(f"module does not export `{f}`")
+                v = m.scope.vars.get(f, MISSING)
+                args = self.evs(argn)
+                if v is MISSING:
+                    return self.undef_call(f, args)
+                return self.apply(v, args, f)
             args = self.evs(argn)
             if f in BUILTINS:
                 return self.call_name(f, args)
@@ -1357,6 +1581,12 @@ class Interpreter(Ctx):
         if k == "elemwise":
             f = self.ev(head[1])
             return self.elemwise(f, self.evs(argn))
+        if k == "uneval" and head[1][0] == "name":
+            nm = head[1][1]                       # 'f'(x): aanroep uitgesteld -> onge-evalueerde f(x)
+            if nm == "procname":
+                pn = self.getvar("procname")
+                nm = pn.name if isinstance(pn, sp.Symbol) else nm
+            return self.undef_call(nm, self.evs(argn))
         f = self.ev(head)
         return self.apply(f, self.evs(argn))
 
@@ -1443,7 +1673,17 @@ class Interpreter(Ctx):
         if isinstance(f, MProc):
             return self.call_proc(f, args)
         if isinstance(f, sp.Symbol):
+            v = self.getvar(f.name)
+            if v is not MISSING and not (isinstance(v, sp.Symbol) and v.name == f.name):
+                v = self.full(v)
+                if not (isinstance(v, sp.Symbol) and v.name == f.name):
+                    return self.apply(v, args, f.name)
             return self.call_name(f.name, args)
+        if isinstance(f, MModule):
+            ma = f.scope.vars.get("ModuleApply")
+            if ma is None:
+                raise MapleError("attempting to call a module without a ModuleApply")
+            return self.apply(ma, args)
         if isinstance(f, Composition):
             fs = f.fs
             res = self.apply(fs[-1], args)
@@ -1467,6 +1707,19 @@ class Interpreter(Ctx):
             return sp.Function(printer.to_text(f))(*args)
         if isinstance(f, sp.core.function.UndefinedFunction) or (isinstance(f, type) and issubclass(f, sp.Function)):
             return f(*args)
+        if isinstance(f, sp.Basic) and not isinstance(f, (sp.core.relational.Relational, sp.logic.boolalg.Boolean)):
+            if f.is_number:
+                return f                          # 2(x) = 2
+            if isinstance(f, (sp.Add, sp.Mul, sp.Pow)):
+                # operatoralgebra: (f+g)(x) = f(x)+g(x), (2*f)(x) = 2*f(x), (f^2)(x) = f(x)^2
+                sub = {}
+                for s_ in f.free_symbols:
+                    r = self.apply(s_, list(args))
+                    if not isinstance(r, sp.Basic):
+                        raise MapleError(f"attempting to call a non-procedure: {printer.to_text(f)}")
+                    sub[s_] = r
+                return f.xreplace(sub)
+            raise MapleError(f"attempting to call a non-procedure: {printer.to_text(f)}")
         if isinstance(f, sp.Basic):
             raise MapleError(f"attempting to call a non-procedure: {printer.to_text(f)}")
         raise MapleError("invalid function call")
@@ -1596,13 +1849,48 @@ class Interpreter(Ctx):
             if nm:
                 names.append(nm)
         out = []
+        for a in argn:
+            m = self._module_of(a)
+            if m is not None:
+                for e in m.exports:
+                    if e in m.scope.vars:
+                        self.env[e] = m.scope.vars[e]
+                    out.append(self.sym(e))
+                names = [x for x in names if x != self._nm(a)]
         for nm in names:
             out.extend(self.sym(x) for x in PACKAGES.get(nm, []))
         return MList(out)
 
+    def sf_if(self, argn):
+        """`if`(c, a, b): lui in a en b."""
+        if len(argn) != 3:
+            raise MapleError("invalid input: `if` expects 3 arguments")
+        return self.ev(argn[1]) if self.cond(self.ev(argn[0])) else self.ev(argn[2])
+
+    def sf_evaln(self, argn):
+        if len(argn) != 1:
+            raise MapleError("invalid input: evaln expects 1 argument")
+        a = argn[0]
+        while a[0] in ("uneval", "paren"):
+            a = a[1]
+        if a[0] == "name":
+            return sp.Symbol(a[1])
+        if a[0] == "concat":
+            return sp.Symbol(self.concat_name(a))
+        if a[0] == "index" and a[1][0] == "name":
+            return sp.Indexed(sp.IndexedBase(a[1][1]), *self.index_args(a[2]))
+        raise MapleError("illegal use of an object as a name")
+
     def sf_error(self, argn):
         args = self.evs(argn)
-        raise MapleError(self.format_msg(args))
+        if not args:
+            e = getattr(self, "_last_exc", None)
+            if e is not None:
+                raise e                                  # `error;` in een catch: opnieuw opwerpen
+        err = MapleError(self.format_msg(args))
+        if args and isinstance(args[0], Str):
+            err.mfmt, err.margs = str(args[0]), list(args[1:])
+        raise err
 
     def sf_return(self, argn):
         vals = self.evs(argn)

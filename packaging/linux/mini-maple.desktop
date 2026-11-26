@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=mini-Maple
+GenericName=Rekenomgeving
+Comment=Offline rekenwerkblad met Maple-syntax
+Exec=mini-maple %u
+Icon=mini-maple
+Terminal=false
+Categories=Education;Science;Math;
+MimeType=application/x-maple-worksheet;text/x-maple-source;x-scheme-handler/minimaple;
+Keywords=maple;wiskunde;math;calculus;

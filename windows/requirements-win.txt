@@ -1,0 +1,6 @@
+# Zelfde versies als de Linux-venv (~/work/minimaple/.venv). Enkel wat de web-UI nodig heeft.
+sympy==1.14.0
+mpmath==1.3.0
+numpy==2.5.5
+scipy==1.18.1
+matplotlib==3.11.2

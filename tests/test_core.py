@@ -95,7 +95,7 @@ def test_backtick_names():
 def test_strings():
     assert txt('"hello";') == '"hello"'
     assert txt('s := "a b"; length(s);') == "3"
-    assert txt('cat("a", "b", 1);') == "ab1"
+    assert txt('cat("a", "b", 1);') == "\"ab1\""  # Maple: type van het eerste argument (string)
     assert txt('"abc"[2];') == '"b"'
     assert txt('"abcdef"[2..4];') == '"bcd"'
     assert txt('printf("%s\\n", "x");') == "x"

@@ -87,7 +87,7 @@ class Scope:
 class MProc(_Callable):
     """Maple-procedure of pijlfunctie."""
     def __init__(self, params=(), body=None, closure=None, locals_=(), globals_=(), options=(),
-                 name=None, src="", arrow=False, py=None, rettype=None):
+                 name=None, src="", arrow=False, py=None, rettype=None, kwparams=(), dollar=False):
         self.params = list(params)      # (naam, type_ast|None, default_ast|None)
         self.body = body                # lijst statements (proc) of expressie (arrow)
         self.closure = closure
@@ -100,9 +100,31 @@ class MProc(_Callable):
         self.py = py                    # python-callable (ctx, *args) alternatief
         self.memo = {} if "remember" in self.options else None
         self.rettype = rettype
+        self.kwparams = list(kwparams)  # keyword-parameters {k := default}
+        self.dollar = dollar            # end-marker $: geen extra argumenten toegestaan
 
     def __repr__(self):
         return self.src or "proc"
+
+
+class MModule:
+    """Maple-module: exports leven in `scope` (gedeeld met de procedures die erin gedefinieerd zijn)."""
+    def __init__(self, scope, exports, locals_=(), options=(), src="", name=None):
+        self.scope = scope
+        self.exports = list(exports)
+        self.locals = list(locals_)
+        self.options = set(options)
+        self.src = src
+        self.name = name
+
+    def get(self, name, default=None):
+        if name in self.exports:
+            return self.scope.vars.get(name, default)
+        return default
+
+    def __repr__(self):
+        return self.src or "module() ... end module"
+
 
 
 class Composition(_Callable):

@@ -25,6 +25,9 @@ OPS = [":=", "::", ":-", "->", "..", "**", "@@", "||", "<=", ">=", "<>", "&^", "
        "+", "-", "*", "/", "^", "!", "$", "@", ".", ",", ";", ":", "(", ")", "[", "]", "{", "}",
        "<", ">", "=", "|", "~", "'", "&"]
 OPS.sort(key=len, reverse=True)
+# operatoren met een elementsgewijze variant op~ (L ^~ 2, L1 +~ L2, ...)
+ELEM_BASE = {"+", "-", "*", "/", "^", "=", "<>", "<", "<=", ">", ">=", ".", "||", "@", "**", "mod", "and", "or",
+             "xor", "implies", "union", "intersect", "minus", "subset", "in"}
 VALUE_END_OPS = {")", "]", "}", "^%T", "^%H"}
 
 
@@ -51,6 +54,11 @@ def tokenize(src):
         elif c == "#":
             while i < n and src[i] != "\n":
                 i += 1
+        elif c == "(" and src.startswith("(*", i):
+            j = src.find("*)", i + 2)
+            if j < 0:
+                raise ParseError("unterminated comment", i)
+            i = j + 2
         elif c == '"':
             j = i + 1
             buf = []
@@ -117,6 +125,10 @@ def tokenize(src):
         else:
             for op in OPS:
                 if src.startswith(op, i):
+                    if op in ELEM_BASE and src.startswith("~", i + len(op)):
+                        toks.append(Tok("op", op + "~", i, i + len(op) + 1))
+                        i += len(op) + 1
+                        break
                     toks.append(Tok("op", op, i, i + len(op)))
                     i += len(op)
                     break
@@ -148,6 +160,9 @@ BIN = {
     ".": (15, False), "@": (16, False), "@@": (16, False),
     "^": (17, True), "**": (17, True), "&^": (17, True),
 }
+for _o in list(BIN):
+    if _o in ELEM_BASE:
+        BIN[_o + "~"] = BIN[_o]
 P_NEG = 14
 P_POW = 17
 # tokens die een blok afsluiten
@@ -311,17 +326,25 @@ class Parser:
                 op = t.v
             else:
                 break
+            kw_elem = t.t == "name" and self.isop("~", 1) and op + "~" in BIN
+            if kw_elem:
+                op = op + "~"
             if op not in BIN:
                 break
             prec, right = BIN[op]
             if prec < minp:
                 break
             self.next()
+            if kw_elem:
+                self.next()
             left = self.led(op, left, prec, right)
         return left
 
     def led(self, op, left, prec, right):
         nextp = prec if right else prec + 1
+        if len(op) > 1 and op.endswith("~"):
+            base = {"**": "^"}.get(op[:-1], op[:-1])
+            return ("elembin", base, left, self.expr(nextp))
         if op == ":=":
             rhs = self.expr(nextp)
             return ("assign", left, rhs)
@@ -370,6 +393,8 @@ class Parser:
         return t.s
 
     def arrow_params(self, left):
+        while left[0] == "paren":
+            left = left[1]
         items = left[1] if left[0] == "seq" else ([] if left[0] == "seq0" else [left])
         params = []
         for it in items:
@@ -502,12 +527,22 @@ class Parser:
             if v == "{":
                 return ("set", self.args("}"))
             if v == "'":
-                if self.isop("'"):
+                k = 1
+                while self.isop("'"):
                     self.next()
-                    return ("uneval", ("seq", []))
+                    k += 1
+                nt = self.peek()
+                if k % 2 == 0 and (nt.t == "eof" or (nt.t == "op" and nt.v in (";", ":", ",", ")", "]", "}"))):
+                    e = ("seq", [])          # '' (lege uitgestelde reeks), eventueel genest
+                    for _ in range(k // 2 - 1):
+                        e = ("uneval", e)
+                    return ("uneval", e)
                 e = self.expr(0)
-                self.expect_op("'")
-                return ("uneval", e)
+                for _ in range(k):
+                    self.expect_op("'")
+                for _ in range(k):
+                    e = ("uneval", e)
+                return e
             raise ParseError(f"unexpected {self.tokdesc(t)}", t.s)
         if k == "name":
             v = t.v
@@ -515,6 +550,8 @@ class Parser:
                 return self.keyword(t)
             if v == "error" and not self.isop("("):
                 nt = self.peek()
+                if nt.t == "eof" or (nt.t == "op" and nt.v in (";", ":")) or (nt.t == "name" and nt.v in BLOCK_END):
+                    return ("call", ("name", "error"), [])       # `error;` : opnieuw opwerpen
                 if nt.t != "eof" and not (nt.t == "op" and nt.v in (";", ":")) and not (nt.t == "name" and nt.v in BLOCK_END):
                     items = [self.expr(0)]
                     while self.isop(","):
@@ -529,6 +566,10 @@ class Parser:
         v = t.v
         if v == "proc":
             return self.proc(t)
+        if v == "module":
+            return self.module(t)
+        if v == "use":
+            return self.use(t)
         if v == "if":
             return self.if_(t)
         if v in ("for", "while", "from"):
@@ -645,32 +686,53 @@ class Parser:
         self.end_kw("try")
         return ("try", body, catches, fin)
 
-    def proc(self, t0):
+    def _param(self):
+        n = self.next()
+        if n.t not in ("name", "qname"):
+            raise ParseError("parameter name expected", n.s)
+        typ = dflt = None
+        if self.isop("::"):
+            self.next()
+            typ = self.expr(11)
+        if self.isop(":=") or self.isop("="):
+            self.next()
+            dflt = self.expr(5)
+        return (n.v, typ, dflt)
+
+    def proc_params(self):
+        """-> (positionele params, keyword-params, end-marker $)"""
+        params, kw, dollar = [], [], False
         self.expect_op("(")
-        params = []
         if not self.isop(")"):
             while True:
-                n = self.next()
-                if n.t not in ("name", "qname"):
-                    raise ParseError("parameter name expected", n.s)
-                typ = dflt = None
-                if self.isop("::"):
+                if self.isop("{"):
                     self.next()
-                    typ = self.expr(11)
-                if self.isop(":="):
+                    if not self.isop("}"):
+                        while True:
+                            kw.append(self._param())
+                            if self.isop(","):
+                                self.next()
+                                continue
+                            break
+                    self.expect_op("}")
+                elif self.isop("$"):
                     self.next()
-                    dflt = self.expr(5)
-                params.append((n.v, typ, dflt))
+                    dollar = True
+                else:
+                    params.append(self._param())
                 if self.isop(","):
                     self.next()
                     continue
                 break
         self.expect_op(")")
+        return params, kw, dollar
+
+    def decls(self):
         rettype = None
         if self.isop("::"):
             self.next()
             rettype = self.expr(11)
-        locs, globs, opts = [], [], []
+        locs, globs, opts, inits, exports, uses = [], [], [], [], [], []
         while True:
             while self.isop(";") or self.isop(":"):
                 self.next()
@@ -692,23 +754,74 @@ class Parser:
                         self.expr(11)
                     if self.isop(":="):
                         self.next()
-                        self.expr(5)
+                        ini = self.expr(5)
+                        if t.v in ("local", "export"):
+                            inits.append(("assign", ("name", n.v), ini))
                     if t.v == "local":
                         locs.append(n.v)
+                    elif t.v == "export":
+                        exports.append(n.v)
                     elif t.v == "global":
                         globs.append(n.v)
+                    elif t.v == "uses":
+                        uses.append(n.v)
                     elif t.v in ("option", "options"):
                         opts.append(n.v)
+                        if self.isop("("):          # option remember(...), option ... = ...
+                            self.next()
+                            self.args(")")
                     if self.isop(","):
                         self.next()
                         continue
                     break
                 continue
             break
-        body = self.body()
+        self._uses = uses
+        return locs, globs, opts, inits, exports, rettype
+
+    def proc(self, t0):
+        params, kwparams, dollar = self.proc_params()
+        locs, globs, opts, inits, exports, rettype = self.decls()
+        uses = self._uses
+        body = inits + self.body()
+        if uses:
+            body = [("use", [("name", u) for u in uses], body)]
         self.end_kw("proc")
         src = self.src[t0.s:self.toks[self.i - 1].e]
-        return ("proc", dict(params=params, locals=locs, globals=globs, options=opts, body=body, src=src, rettype=rettype))
+        return ("proc", dict(params=params, locals=locs + exports, globals=globs, options=opts, body=body, src=src,
+                             rettype=rettype, kwparams=kwparams, dollar=dollar))
+
+    def module(self, t0):
+        """module() export ..; local ..; option ..; stmts end module   (ook  module M() ... )"""
+        name = None
+        if self.peek().t in ("name", "qname") and self.isop("(", 1):
+            name = self.next().v
+        self.expect_op("(")
+        self.expect_op(")")
+        locs, globs, opts, inits, exports, _ = self.decls()
+        body = inits + self.body()
+        self.end_kw("module")
+        src = self.src[t0.s:self.toks[self.i - 1].e]
+        return ("module", dict(name=name, locals=locs, exports=exports, globals=globs, options=opts, body=body,
+                               src=src))
+
+    def use(self, t0):
+        """use A, B, x = e in stmts end use"""
+        binds = []
+        while True:
+            b = self.expr(10)
+            if self.isop("="):
+                self.next()
+                b = ("bin", "=", b, self.expr(10))
+            binds.append(b)
+            if self.isop(","):
+                self.next()
+                continue
+            break
+        self.expect_kw("in")
+        body = self.body()
+        self.end_kw("use")
+        return ("use", binds, body)
 
     def matrix(self):
         self.expect_op("<")
