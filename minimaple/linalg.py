@@ -248,8 +248,13 @@ def Array(ctx, *args):
     if pos and isinstance(pos[0], MImage):
         from .imagetools import image_to_matrix
         return image_to_matrix(pos[0])
-    if pos and all(isinstance(p, Range) for p in pos[:2]) and pos:
-        rs = [p for p in pos if isinstance(p, Range)]
+    nr = 0
+    while nr < len(pos) and isinstance(pos[nr], Range):
+        nr += 1
+    if nr:
+        rs = pos[:nr]
+        if any(int(p.lo) != 1 for p in rs):
+            raise LAError('Array: only index ranges starting at 1 are supported')
         dims = [int(p.hi) - int(p.lo) + 1 for p in rs]
         init = pos[len(rs)] if len(pos) > len(rs) else None
         if len(dims) == 1:

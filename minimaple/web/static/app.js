@@ -718,9 +718,6 @@
     if (e.key === "ArrowDown" && !e.altKey && t.selectionEnd === p && v.indexOf("\n", p) < 0 && g.nextElementSibling) {
       e.preventDefault(); focusGroup(g.nextElementSibling, false); return;
     }
-    if (e.key === "Backspace" && !v && groupsEl.children.length > 1) {
-      e.preventDefault(); var prev = g.previousElementSibling || g.nextElementSibling; g.remove(); S.cur = null; changed(); info(); focusGroup(prev);
-    }
   });
   document.addEventListener("keydown", function (e) {
     var k = e.key, c = e.ctrlKey || e.metaKey;

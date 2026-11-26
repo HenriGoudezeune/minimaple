@@ -344,6 +344,20 @@ def _is(ctx, e, prop=None):
                 return B(r) if r is not None else sp.Symbol("FAIL")
         return B(check_type(ctx, e, prop))
     t = truth(ctx, e)
+    if t is None and isinstance(e, sp.core.relational.Relational) and getattr(ctx, "intervals", None):
+        fs = list(e.free_symbols)
+        if len(fs) == 1 and fs[0].name in ctx.intervals:
+            x = fs[0]
+            S = ctx.intervals[x.name]
+            try:
+                xs = sp.Symbol(x.name, real=True)
+                sol = sp.solveset(e.xreplace({x: xs}), xs, S)
+                if sol == S:
+                    return sp.true
+                if sol is sp.S.EmptySet:
+                    return sp.false
+            except Exception:
+                pass
     if t is None:
         if isinstance(e, sp.core.relational.Relational):
             try:
@@ -1082,8 +1096,17 @@ def noop(ctx, *a):
     return Seq()
 
 
-@core("assume", "additionally")
+@core("assume")
 def assume(ctx, *args):
+    return _assume(ctx, args, True)
+
+
+@core("additionally")
+def additionally(ctx, *args):
+    return _assume(ctx, args, False)
+
+
+def _assume(ctx, args, replace):
     specs = []
     for a in args:
         if isinstance(a, (list, tuple)):
@@ -1092,7 +1115,10 @@ def assume(ctx, *args):
             specs.append(a)
     if len(specs) == 2 and isinstance(specs[0], sp.Symbol) and isinstance(specs[1], sp.Symbol):
         specs = [TypeDecl(specs[0], specs[1])]
-    ctx.add_assumptions(specs)
+    try:
+        ctx.add_assumptions(specs, replace=replace)
+    except TypeError:
+        ctx.add_assumptions(specs)
     return Seq()
 
 

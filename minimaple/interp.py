@@ -41,6 +41,7 @@ def is_numlit(x):
 
 
 _OPCALL = (MProc, Composition, Repeat)
+_COMPOUND = {"for", "if", "try", "use"}
 # builtins die algebraische expressies verwachten: een procedurenaam als argument blijft een naam
 _ALGEBRAIC_BUILTINS = {"coeff", "coeffs", "degree", "ldegree", "lcoeff", "tcoeff", "collect", "series", "taylor", "subs",
                        "solve", "fsolve", "isolate", "eliminate", "expand", "simplify", "factor", "normal", "numer",
@@ -70,6 +71,7 @@ class Interpreter(Ctx):
         self.scope = self.gscope
         self.digits = 10
         self.assumptions = {}
+        self.intervals = {}
         self.coords = None
         self.plots = []
         self._out = []
@@ -77,6 +79,7 @@ class Interpreter(Ctx):
         self.depth = 0
         self._scan_cache = {}
         self._symcache = {}
+        self._echo = None
 
     # ------------------------------------------------------------ Ctx-API
     def out(self, text):
@@ -145,13 +148,54 @@ class Interpreter(Ctx):
     def is_assigned(self, name):
         return self.getvar(name) is not MISSING
 
-    def add_assumptions(self, specs):
+    def add_assumptions(self, specs, replace=False):
+        if replace:
+            for sp_ in specs:
+                name, _ = self._assume_kw(sp_)
+                if name:
+                    self.assumptions.pop(name, None)
+                    self.intervals.pop(name, None)
         for sp_ in specs:
+            self._add_interval(sp_)
             name, kw = self._assume_kw(sp_)
             if name:
                 cur = dict(self.assumptions.get(name, {}))
                 cur.update(kw)
                 self.assumptions[name] = cur
+
+    def _add_interval(self, s):
+        """Numerieke grenzen uit x > a, x <= b, x::RealRange(a, b) bijhouden (voor is/about)."""
+        iv = None
+        if isinstance(s, sp.core.relational.Relational) and not isinstance(s, (sp.Equality, sp.Unequality)):
+            l, r = s.lhs, s.rhs
+            if isinstance(r, sp.Symbol) and not isinstance(l, sp.Symbol):
+                s = s.reversed
+                l, r = s.lhs, s.rhs
+            if isinstance(l, sp.Symbol) and r.is_number and r.is_real:
+                iv = {sp.StrictGreaterThan: sp.Interval.open(r, sp.oo), sp.GreaterThan: sp.Interval(r, sp.oo),
+                      sp.StrictLessThan: sp.Interval.open(-sp.oo, r), sp.LessThan: sp.Interval(-sp.oo, r)}.get(type(s))
+                name = l.name
+        elif isinstance(s, TypeDecl) and isinstance(s.val, sp.Symbol):
+            t = s.typ
+            name = s.val.name
+            tn = t.name if isinstance(t, sp.Symbol) else (t.func.__name__ if isinstance(t, sp.Function) else "")
+            if tn in ("positive",):
+                iv = sp.Interval.open(0, sp.oo)
+            elif tn in ("negative",):
+                iv = sp.Interval.open(-sp.oo, 0)
+            elif tn in ("nonnegative", "nonneg"):
+                iv = sp.Interval(0, sp.oo)
+            elif tn == "RealRange" and isinstance(t, sp.Function) and len(t.args) == 2:
+                def bound(b, low):
+                    if isinstance(b, sp.Function) and b.func.__name__ == "Open":
+                        return b.args[0], True
+                    return b, False
+                (a, ao), (b, bo) = bound(t.args[0], True), bound(t.args[1], False)
+                a = -sp.oo if a in (-sp.oo,) else a
+                iv = sp.Interval(a, b, left_open=ao, right_open=bo)
+        if iv is not None:
+            cur = self.intervals.get(name, sp.Reals)
+            self.intervals[name] = cur & iv
 
     def _assume_kw(self, s):
         if isinstance(s, TypeDecl):
@@ -294,6 +338,9 @@ class Interpreter(Ctx):
             self.depth = 0
             val = None
             err = None
+            compound = node[0] in _COMPOUND
+            # Maple toont op topniveau de resultaten van statements in lussen/if/try (afsluiter ;)
+            self._echo = [] if (compound and show) else None
             try:
                 val = self.ev(node)
             except MapleError as e:
@@ -309,6 +356,18 @@ class Interpreter(Ctx):
             except Exception as e:  # noqa
                 err = "Error, " + self._pyerr(e)
             self.scope = self.gscope
+            echoed, self._echo = self._echo, None
+            if compound:
+                val = Seq()
+                for ev_ in (echoed or []):
+                    if isinstance(ev_, Plot):
+                        if not any(ev_ is p for p in self.plots):
+                            self.plots.append(ev_)
+                        continue
+                    try:
+                        results.append(self._result(src, True, printer.to_text(ev_), printer.to_latex(ev_)))
+                    except Exception:  # noqa
+                        results.append(self._result(src, True, str(ev_)))
             outs = "".join(self._out)
             if outs:
                 results.append(self._result(src, True, text=outs.rstrip("\n")))
@@ -324,7 +383,7 @@ class Interpreter(Ctx):
             if not (isinstance(val, Seq) and len(val) == 0):
                 self.history = [val] + self.history[:2]
             is_null = isinstance(val, Seq) and len(val) == 0
-            if is_null and outs:
+            if is_null and (outs or compound):
                 continue
             text, latex = "", None
             if show:
@@ -388,8 +447,13 @@ class Interpreter(Ctx):
 
     def block(self, stmts):
         last = Seq()
+        echo = self._echo if self.depth == 0 else None
         for s in stmts:
             last = self.ev(s)
+            if echo is not None and s[0] not in _COMPOUND:
+                v = self.norm(last)
+                if not (isinstance(v, Seq) and len(v) == 0):
+                    echo.append(v)
         return last
 
     def ev_int(self, n):
@@ -520,6 +584,7 @@ class Interpreter(Ctx):
 
     def ev_module(self, n):
         info = n[1]
+        saved_echo, self._echo = self._echo, None
         scope = Scope(parent=self.scope)
         scope.locals = set(info["locals"]) | set(info["exports"])
         scope.globals = set(info["globals"])
@@ -532,6 +597,7 @@ class Interpreter(Ctx):
             pass
         finally:
             self.scope = saved
+            self._echo = saved_echo
         for e in m.exports:
             v = scope.vars.get(e)
             if isinstance(v, MProc) and v.name is None:
@@ -646,7 +712,7 @@ class Interpreter(Ctx):
             if isinstance(x, (sp.Basic, sp.MatrixBase)):
                 return -x
             if isinstance(x, MList):
-                raise MapleError("invalid unary minus on a list")
+                return MList([self.ev(("un", "-", ("_v", y))) for y in x])
             raise MapleError("invalid operand for unary minus")
         if op == "not":
             t = self.truth(x)
@@ -802,6 +868,20 @@ class Interpreter(Ctx):
         return isinstance(x, sp.Basic)
 
     def _bad(self, op, a, b):
+        # lijsten: L1 + L2 (zelfde lengte), c*L, L/c  (zoals in Maple)
+        if isinstance(a, MList) or isinstance(b, MList):
+            if op in ("+", "-") and isinstance(a, MList) and isinstance(b, MList):
+                if len(a) != len(b):
+                    raise MapleError("adding lists of different length")
+                return MList([self.binop(op, x, y) for x, y in zip(a, b)])
+            if op == "*" and isinstance(a, MList) != isinstance(b, MList):
+                L, c = (a, b) if isinstance(a, MList) else (b, a)
+                if self._num(c) and not isinstance(c, sp.MatrixBase):
+                    return MList([self.binop("*", x, c) if L is a else self.binop("*", c, x) for x in L])
+            if op == "/" and isinstance(a, MList) and self._num(b):
+                return MList([self.binop("/", x, b) for x in a])
+        if isinstance(a, MSet) and isinstance(b, MSet) and op in ("+", "-", "*"):
+            raise MapleError(f"invalid operands for {op}: sets (use union, minus or map)")
         if op in ("+", "-", "*", "/") and isinstance(a, _OPCALL) + isinstance(b, _OPCALL) >= 1 and \
                 all(isinstance(z, _OPCALL) or self._num(z) for z in (a, b)):
             from .core_fns import arrow_from_expr, _op_names
@@ -825,8 +905,6 @@ class Interpreter(Ctx):
             return self._bad("+", a, b)
         if self._num(a) and self._num(b):
             return a + b
-        if isinstance(a, (MList, MSet)) and isinstance(b, (MList, MSet)):
-            raise MapleError("unable to add lists or sets (use zip or map)")
         return self._bad("+", a, b)
 
     def op_sub(self, a, b):
@@ -1804,11 +1882,21 @@ class Interpreter(Ctx):
             return self.ev(argn[0])
         return self._iterate(sa[0], sa[1], lambda xs: Seq(xs))
 
+    def _one_arg_fold(self, argn, op, unit):
+        c = self.ev(argn[0])
+        items = list(c) if isinstance(c, (MList, MSet, Seq, sp.MatrixBase, Table)) and not isinstance(c, Table) \
+            else (list(c.values()) if isinstance(c, Table) else [c])
+        return functools.reduce(op, items) if items else unit
+
     def sf_add(self, argn):
+        if len(argn) == 1:
+            return self._one_arg_fold(argn, self.op_add, sp.Integer(0))
         sa = self._spec_args(argn, "add")
         return self._iterate(sa[0], sa[1], lambda xs: functools.reduce(self.op_add, xs) if xs else sp.Integer(0))
 
     def sf_mul(self, argn):
+        if len(argn) == 1:
+            return self._one_arg_fold(argn, self.op_mul, sp.Integer(1))
         sa = self._spec_args(argn, "mul")
         return self._iterate(sa[0], sa[1], lambda xs: functools.reduce(self.op_mul, xs) if xs else sp.Integer(1))
 

@@ -460,7 +460,9 @@ def _func_layers(ctx, exprs, rng, o, lo, style, polar=False):
             else:
                 v = sp.Symbol("x")
         if a is None:
-            raise ValueError("plot: bereik ontbreekt (bv. x=-5..5)")
+            # Maple-standaard zonder bereik: -2*Pi..2*Pi voor goniometrische functies, anders -10..10
+            trig = isinstance(e, sp.Basic) and e.has(sp.sin, sp.cos, sp.tan, sp.cot, sp.sec, sp.csc)
+            a, b = (-2 * np.pi, 2 * np.pi) if trig else (-10.0, 10.0)
         t = np.asarray(vals, float) if vals is not None else np.linspace(a, b, _npts(o))
         y = _eval(ctx, e, [v], [t])
         if polar:
@@ -516,10 +518,8 @@ def _plot_impl(ctx, args, scale=None, polar=False, default_style=None):
         xn = "x"
     elif isinstance(d, (MSet,)) or (_seq(d) and not _is_data_seq(d) and not isinstance(d, sp.MatrixBase)):
         exprs = _items(d)
-        if not rngs:
-            raise ValueError("plot: bereik ontbreekt (bv. x=-5..5)")
         lo = _layer_opts(o, len(exprs))
-        layers, xn = _func_layers(ctx, exprs, rngs[0], o, lo, style, polar)
+        layers, xn = _func_layers(ctx, exprs, rngs[0] if rngs else None, o, lo, style, polar)
     elif _is_data_seq(d) or isinstance(d, (sp.MatrixBase, sp.NDimArray)):
         # lijst-van-lijsten van paren (meerdere datasets)?
         items = _items(d)
@@ -534,14 +534,8 @@ def _plot_impl(ctx, args, scale=None, polar=False, default_style=None):
             layers = [_line_layer(x, y, 0, lo, style, "o")]
     else:
         exprs = [d] + [e for e in rest[1:] if not _is_data_seq(e)]
-        if not rngs:
-            if isinstance(d, sp.Basic) and not d.free_symbols:
-                raise ValueError("plot: bereik ontbreekt")
-            if not isinstance(d, sp.Basic) or d.free_symbols:
-                # callable zonder bereik is onmogelijk; expressie met 1 symbool ook
-                raise ValueError("plot: bereik ontbreekt (bv. x=-5..5)")
         lo = _layer_opts(o, len(exprs))
-        layers, xn = _func_layers(ctx, exprs, rngs[0], o, lo, style, polar)
+        layers, xn = _func_layers(ctx, exprs, rngs[0] if rngs else None, o, lo, style, polar)
     op = _common_opts(o, 2, None if polar else [xn, ""])
     if polar and "scaling" not in op:
         op["scaling"] = "constrained"
@@ -645,6 +639,8 @@ def _pointplot3d(ctx, *args):
         x, y, z = (_arr(p).ravel() for p in pos)
     else:
         a = _arr(pos[0])
+        if a.ndim == 1 and a.size == 3:            # een enkel punt [x,y,z] of <x,y,z>
+            a = a.reshape(1, 3)
         if a.ndim != 2 or 3 not in a.shape:
             raise ValueError("pointplot3d: verwacht lijst van [x,y,z]")
         x, y, z = (a[:, 0], a[:, 1], a[:, 2]) if a.shape[1] == 3 else (a[0], a[1], a[2])
@@ -676,6 +672,38 @@ def _grid_n(o, default=60):
     return default, default
 
 
+def _dependent_ranges(ctx, r1, r2, m, n):
+    """plot3d(f, r = 0..g(t), t = a..b): grenzen van het ene bereik die van de andere veranderlijke afhangen.
+    -> (v1, v2, U, V) of None als beide bereiken constant zijn."""
+    l1, l2 = _lr(r1), _lr(r2)
+    if l1 is None or l2 is None or not isinstance(l1[1], Range) or not isinstance(l2[1], Range):
+        return None
+    (x1, R1), (x2, R2) = l1, l2
+
+    def has(b, x):
+        return isinstance(b, sp.Basic) and b.has(x)
+    d1 = has(R1.lo, x2) or has(R1.hi, x2)
+    d2 = has(R2.lo, x1) or has(R2.hi, x1)
+    if not (d1 or d2):
+        return None
+    if d1 and d2:
+        raise ValueError("plot3d: de bereiken hangen wederzijds van elkaar af")
+    s = np.linspace(0.0, 1.0, m if d1 else n)
+    if d1:
+        v = np.linspace(_num(R2.lo), _num(R2.hi), n)
+        lo = _eval(ctx, R1.lo, [x2], [v]).real
+        hi = _eval(ctx, R1.hi, [x2], [v]).real
+        S, Vg = np.meshgrid(s, v)
+        U = lo[:, None] + S * (hi - lo)[:, None]
+        return x1, x2, U, Vg
+    u = np.linspace(_num(R1.lo), _num(R1.hi), m)
+    lo = _eval(ctx, R2.lo, [x1], [u]).real
+    hi = _eval(ctx, R2.hi, [x1], [u]).real
+    Ug, S = np.meshgrid(u, s)
+    V = lo[None, :] + S * (hi - lo)[None, :]
+    return x1, x2, Ug, V
+
+
 @maple("plot3d")
 def _plot3d(ctx, *args):
     rest, rngs, o = _split_data(args)
@@ -693,10 +721,14 @@ def _plot3d(ctx, *args):
         raise ValueError("plot3d: twee bereiken nodig, bv. x=-1..1, y=-1..1")
     if len(rngs) < 2:
         raise ValueError("plot3d: twee bereiken nodig, bv. x=-1..1, y=-1..1")
-    (v1, a1, b1, w1), (v2, a2, b2, w2) = _parse_range(rngs[0]), _parse_range(rngs[1])
-    u = np.asarray(w1, float) if w1 is not None else np.linspace(a1, b1, m)
-    v = np.asarray(w2, float) if w2 is not None else np.linspace(a2, b2, n)
-    U, V = np.meshgrid(u, v)
+    dep = _dependent_ranges(ctx, rngs[0], rngs[1], m, n)
+    if dep is not None:
+        v1, v2, U, V = dep
+    else:
+        (v1, a1, b1, w1), (v2, a2, b2, w2) = _parse_range(rngs[0]), _parse_range(rngs[1])
+        u = np.asarray(w1, float) if w1 is not None else np.linspace(a1, b1, m)
+        v = np.asarray(w2, float) if w2 is not None else np.linspace(a2, b2, n)
+        U, V = np.meshgrid(u, v)
     if param:
         surfs = [_items(d)]
     elif isinstance(d, MSet) or (isinstance(d, (MList, list)) and not param):

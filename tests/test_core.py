@@ -637,7 +637,9 @@ def test_error_has_prefix():
 
 
 def test_bad_operands():
-    assert "invalid" in last("[1, 2] + [3, 4];")["error"] or last("[1,2]+[3,4];")["error"]
+    assert last("[1, 2] + [3, 4];")["text"] == "[4, 6]"          # Maple telt lijsten van gelijke lengte op
+    assert last("[1, 2] + [3, 4, 5];")["error"]
+    assert last("{1, 2} + {3};")["error"]
     assert last('"a" + 1;')["error"]
 
 
