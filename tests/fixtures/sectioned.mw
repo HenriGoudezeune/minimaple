@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Worksheet>
+<Version major="2024" minor="1"/>
+<View-Properties presentation="false"/>
+<Styles><Font name="Text" family="Times New Roman"/></Styles>
+<Section collapsed="false"><Title><Text-field style="Heading 1" layout="Heading 1">Oefening 1</Text-field></Title>
+<Presentation-Block>
+<Group view="code" labelreference="L1"><Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">restart:</Text-field></Input></Group>
+<Group view="presentation"><Input><Text-field style="Text" layout="Normal">Cirkel met <Equation executable="false" style="2D Math" input-equation="" display="LUklbXJvd0c2Iy9JK21vZHVsZW5hbWVHNiJJLFR5cGVzZXR0aW5nR0koX3N5c2xpYkdGJzYlLUkjbWlHRiQ2JVEickYnLyUnaXRhbGljR1EldHJ1ZUYnLUkjbW9HRiQ2JVEiPUYnLyUnZmVuY2VHUSZmYWxzZUYnLUkjbW5HRiQ2JVEiMkYn">LUklbXJvd0c2Iy9JK21vZHVsZW5hbWVHNiJJLFR5cGVzZXR0aW5nR0koX3N5c2xpYkdGJzYlLUkjbWlHRiQ2JVEickYnLyUnaXRhbGljR1EldHJ1ZUYnLUkjbW9HRiQ2JVEiPUYnLyUnZmVuY2VHUSZmYWxzZUYnLUkjbW5HRiQ2JVEiMkYn</Equation> en een caf\303\251.</Text-field></Input></Group>
+<Group view="code"><Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">f := x -&gt; x^2*sin(x);</Text-field></Input>
+<Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">int(f(x), x = 0 .. Pi);</Text-field></Input>
+<Output><Text-field style="2D Output" layout="Maple Output">oude uitvoer</Text-field><Plot height="100" width="100">AAAA</Plot></Output></Group>
+<Section><Title><Text-field style="Heading 2" layout="Heading 2">Deel b</Text-field></Title>
+<Group view="code"><Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">if a &lt; 1 then "klein" else "groot" end if;</Text-field></Input></Group>
+</Section>
+</Presentation-Block>
+</Section>
+<Group view="presentation"><Input><Text-field style="Text" layout="Normal"></Text-field></Input></Group>
+<Startup-Code startupcode=""/>
+</Worksheet>

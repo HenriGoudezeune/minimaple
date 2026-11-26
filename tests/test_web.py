@@ -17,6 +17,19 @@ def test_web_api():
                                      {"Cookie": cookie, "Content-Type": "application/json"})
         res = json.load(urllib.request.urlopen(req))["results"]
         assert res and all("plots" in x for x in res)
+        # werkblad openen: enkel parsen
+        from pathlib import Path
+        mw = (Path(__file__).parent / "fixtures" / "flat.mw").read_bytes()
+        req = urllib.request.Request(base + "/api/open?name=flat.mw", mw, {"Content-Type": "application/octet-stream"})
+        d = json.load(urllib.request.urlopen(req))
+        assert d["name"] == "flat.mw" and [g["type"] for g in d["groups"]] == ["text", "input"]
+        try:
+            urllib.request.urlopen(urllib.request.Request(base + "/api/open?name=x.mw", b"<nope", {})); assert False
+        except urllib.error.HTTPError as e:
+            assert e.code == 400 and "error" in json.load(e)
+        h = json.load(urllib.request.urlopen(base + "/api/help?name=diff"))
+        assert h["found"] and h["text"].startswith("diff")
+        assert not json.load(urllib.request.urlopen(base + "/api/help?name=geenidee"))["found"]
         # path traversal en vreemde Host worden geweigerd
         try:
             urllib.request.urlopen(base + "/static/../server.py"); assert False

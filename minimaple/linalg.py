@@ -1,7 +1,7 @@
 """LinearAlgebra-pakket voor mini-Maple. Matrices = sympy.Matrix (kolomvector nx1, rijvector 1xn)."""
 import sympy as sp
 import numpy as np
-from .values import maple, MList, MSet, Seq, Range, PACKAGES
+from .values import maple, MList, MSet, Seq, Range, PACKAGES, MImage
 
 PKG = 'LinearAlgebra'
 LA_OPTS = {'shape', 'fill', 'output', 'orientation', 'datatype', 'storage', 'order', 'scan', 'readonly',
@@ -55,7 +55,11 @@ def _vec(x):
 
 
 def _conj(e):
-    return sp.conjugate(e) if e.has(sp.I) else e
+    """Complex toegevoegde (Maple: conjugate); symbolen zijn complex tenzij assume/real-declaratie, dus
+    conjugate(a) blijft staan; getallen/reele symbolen blijven ongewijzigd."""
+    e = sp.sympify(e)
+    c = sp.conjugate(e)
+    return c
 
 
 def _hconj(M):
@@ -174,6 +178,9 @@ def Matrix(ctx, *args):
     if not pos:
         return _build(ctx, 0, 0, None, opts)
     a = pos[0]
+    if isinstance(a, MImage):
+        from .imagetools import image_to_matrix
+        a = image_to_matrix(a)
     if len(pos) == 1:
         if _is_mat(a) or isinstance(a, (list, tuple)):
             M = _mat(a)
@@ -238,6 +245,9 @@ def VectorRow(ctx, *args):
 @maple('Array', pkg=PKG)
 def Array(ctx, *args):
     pos, opts = _opts(args)
+    if pos and isinstance(pos[0], MImage):
+        from .imagetools import image_to_matrix
+        return image_to_matrix(pos[0])
     if pos and all(isinstance(p, Range) for p in pos[:2]) and pos:
         rs = [p for p in pos if isinstance(p, Range)]
         dims = [int(p.hi) - int(p.lo) + 1 for p in rs]
@@ -356,6 +366,8 @@ def Transpose(ctx, M):
 
 @maple('HermitianTranspose', pkg=PKG)
 def HermitianTranspose(ctx, M):
+    if not _is_mat(M):
+        return _conj(M)          # scalar: gewoon de complex toegevoegde
     return _hconj(_mat(M))
 
 
@@ -790,11 +802,13 @@ def Normalize(ctx, v, p=None, *r):
 
 @maple('DotProduct', pkg=PKG)
 def DotProduct(ctx, a, b, *r):
-    """Maple: a^H b (eerste argument geconjugeerd als er complexe termen zijn)."""
+    """Maple: a^H b (eerste argument geconjugeerd); met conjugate=false de bilineaire a^T b."""
+    _, o = _opts(r)
+    conj = str(o.get('conjugate', 'true')).lower() != 'false'
     a, b = _vec(a), _vec(b)
     if a.rows != b.rows:
         raise LAError('DotProduct: vectors must have the same dimension')
-    return _simp(sp.expand(sum(_conj(x) * y for x, y in zip(a, b))))
+    return _simp(sp.expand(sum((_conj(x) if conj else x) * y for x, y in zip(a, b))))
 
 
 @maple('CrossProduct', pkg=PKG)

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Worksheet>
+<Group><Input><Text-field style="Heading 1" layout="Heading 1">Titel</Text-field></Input></Group>
+<Group><Input><Text-field style="Text" layout="Normal">Eerste alinea.</Text-field></Input></Group>
+<Group><Input><Text-field style="Text" layout="Normal">Tweede alinea.</Text-field></Input></Group>
+<Group><Input><Text-field prompt="&gt; " style="Maple Input" layout="Normal">with(plots):
+plot(sin(x), x = -Pi..Pi);</Text-field></Input></Group>
+</Worksheet>

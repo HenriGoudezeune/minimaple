@@ -22,6 +22,22 @@ class Plot:
     def render(s, path): 
         from . import plots; plots.render(s, path)
 
+class MImage:
+    """Afbeelding (ImageTools): data = numpy float-array in [0,1], vorm (h,w) grijs of (h,w,3) kleur."""
+    def __init__(s, data):
+        s.data = data
+
+    @property
+    def shape(s):
+        return s.data.shape
+
+    def __repr__(s):
+        h, w = s.data.shape[:2]
+        return f"Image({h} x {w}, {'RGB' if s.data.ndim == 3 else 'grayscale'})"
+
+    __str__ = __repr__
+
+
 BUILTINS = {}      # naam -> functie(ctx, *args)   (kleine letters en Hoofdletters zoals in Maple)
 PACKAGES = {}      # pakketnaam -> lijst namen (voor with(pkg) en pkg:-f)
 

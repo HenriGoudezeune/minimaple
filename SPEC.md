@@ -1,6 +1,6 @@
 # mini-Maple — ontwerp (bindend voor alle modules)
 Eigen implementatie (GEEN Maple-code/-bestanden kopiëren of decompileren), Python 3.14 + SymPy 1.14, venv: `.venv/bin/python`.
-Doel: Maple-achtige syntax; de commando's voor wiskundige modellering (calculus, lineaire algebra, vectoranalyse, DV's, transformaties). Pakket `minimaple/`.
+Doel: Maple-achtige syntax; de commando's voor wiskundige modellering. Pakket `minimaple/`.
 Waardemodel + registry: `minimaple/values.py` (lees dit eerst!). Builtins: `@maple('naam', pkg='LinearAlgebra') def f(ctx, *args)`.
 Waarden zijn sympy-objecten (Expr, Matrix (kolomvector = nx1, rijvector = 1xn), Eq, Function-toepassingen, Piecewise), MList, MSet, Seq, Range, Str, Plot.
 Opties `color=red` komen als `sp.Eq(Symbol('color'), ...)` (zie split_opts). Onbekende namen zijn `sp.Symbol(naam)` (via ctx.sym). Onbepaalde functies `y(x)` = `sp.Function('y')(x)`.

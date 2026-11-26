@@ -1,5 +1,5 @@
 #!/bin/bash
-# Draai als gewone gebruiker (niet als root): bash deploy/install.sh   (idempotent)
+# Draai als gewone gebruiker (niet als root): bash ~/work/minimaple-live/deploy/install.sh   (idempotent)
 # DNS: geen record nodig (wildcard *.hydrargyrum.be).
 set -euo pipefail
 D=~/work/minimaple-live/deploy; TS=$(date +%Y%m%d-%H%M%S); B=~/nginx-backup-$TS

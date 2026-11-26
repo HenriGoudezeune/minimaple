@@ -8,42 +8,107 @@
 <title>mini-Maple</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/icon-180.png">
-<link rel="stylesheet" href="/static/fonts.css">
-<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/fonts.css?v=3">
+<script src="/static/theme.js?v=3"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous">
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="/static/app.css?v=3">
 </head>
 <body>
-<nav class="sh-nav">
-  <span class="brand">mini-Maple<span>HydrarGyrum</span></span>
-  <button class="themesw" type="button" role="switch" aria-checked="false" aria-label="HyGra-thema"><span>HyGra</span><span class="track"><span class="knob"></span></span></button>
-</nav>
-<main>
-  <header class="pagehead">
-    <div class="eyebrow">mini-Maple &middot; computeralgebra</div>
-    <h1>mini-Maple</h1>
-    <p class="lead">Maple-syntax, SymPy eronder. Ctrl+Enter om uit te voeren.</p>
-  </header>
-
-  <section class="card input-card">
-    <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" rows="5" placeholder="int(x^2*sin(x), x);" aria-label="Invoer"></textarea>
-    <div class="row">
-      <button id="run" class="btn primary" type="button">Uitvoeren <kbd>Ctrl+Enter</kbd></button>
-      <button id="reset" class="btn" type="button">Reset sessie</button>
-      <button id="clear" class="btn ghost" type="button">Wis uitvoer</button>
+<div class="app">
+<header class="top">
+  <nav class="sh-nav">
+    <span class="brand">mini-Maple<span id="docname">naamloos</span></span>
+    <button class="themesw" type="button" role="switch" aria-checked="false" aria-label="HyGra-thema"><span>HyGra</span><span class="track"><span class="knob"></span></span></button>
+  </nav>
+  <div class="menubar" id="menubar" role="menubar">
+    <div class="mi"><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Bestand</button>
+      <div class="menu" role="menu" hidden>
+        <button type="button" data-cmd="new">Nieuw</button>
+        <button type="button" data-cmd="open">Openen…<kbd>Ctrl+O</kbd></button>
+        <hr>
+        <button type="button" data-cmd="savemw">Opslaan als .mw<kbd>Ctrl+S</kbd></button>
+        <button type="button" data-cmd="savempl">Opslaan als .mpl</button>
+        <hr>
+        <button type="button" data-cmd="exporthtml">Exporteren als HTML</button>
+        <button type="button" data-cmd="print">Afdrukken / PDF</button>
+      </div>
     </div>
-  </section>
+    <div class="mi"><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Bewerken</button>
+      <div class="menu" role="menu" hidden>
+        <button type="button" data-cmd="addafter">Invoergroep erna<kbd>Ctrl+J</kbd></button>
+        <button type="button" data-cmd="addbefore">Invoergroep ervoor<kbd>Ctrl+K</kbd></button>
+        <button type="button" data-cmd="addtext">Tekstblok erna</button>
+        <hr>
+        <button type="button" data-cmd="moveup">Groep omhoog<kbd>Alt+↑</kbd></button>
+        <button type="button" data-cmd="movedown">Groep omlaag<kbd>Alt+↓</kbd></button>
+        <button type="button" data-cmd="delete">Groep verwijderen<kbd>Ctrl+Del</kbd></button>
+        <hr>
+        <button type="button" data-cmd="clearout">Alle uitvoer wissen</button>
+      </div>
+    </div>
+    <div class="mi"><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Evalueren</button>
+      <div class="menu" role="menu" hidden>
+        <button type="button" data-cmd="run">Huidige groep<kbd>Enter</kbd></button>
+        <button type="button" data-cmd="runall">Hele worksheet<kbd>Ctrl+Shift+Enter</kbd></button>
+        <hr>
+        <button type="button" data-cmd="stop">Stop</button>
+        <button type="button" data-cmd="restart">Restart</button>
+      </div>
+    </div>
+    <div class="mi"><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false">Help</button>
+      <div class="menu" role="menu" hidden>
+        <button type="button" data-cmd="help">Help bij commando…<kbd>F1</kbd></button>
+        <button type="button" data-cmd="commands">Alle commando's</button>
+        <button type="button" data-cmd="examples">Voorbeelden</button>
+        <button type="button" data-cmd="keys">Sneltoetsen</button>
+        <hr>
+        <button type="button" data-cmd="about">Over mini-Maple</button>
+      </div>
+    </div>
+  </div>
+  <div class="toolbar" role="toolbar" aria-label="Werkbalk">
+    <button class="tb" type="button" data-cmd="palettes" title="Paletten tonen/verbergen" aria-label="Paletten"><svg viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M9 4v16"/></svg><span class="lab">Paletten</span></button>
+    <span class="tb-sep"></span>
+    <button class="tb" type="button" data-cmd="addafter" title="Nieuwe invoergroep (Ctrl+J)" aria-label="Nieuwe invoergroep"><svg viewBox="0 0 24 24"><path d="M4 7l5 5-5 5"/><path d="M14 12h7M17.5 8.5v7"/></svg><span class="lab">Invoer</span></button>
+    <button class="tb" type="button" data-cmd="addtext" title="Nieuw tekstblok" aria-label="Nieuw tekstblok"><svg viewBox="0 0 24 24"><path d="M3.5 6h11M9 6v13"/><path d="M14 15h7M17.5 11.5v7"/></svg><span class="lab">Tekst</span></button>
+    <span class="tb-sep"></span>
+    <button class="tb run" type="button" data-cmd="run" title="Huidige groep uitvoeren (Enter)" aria-label="Uitvoeren"><svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg><span class="lab">Uitvoeren</span></button>
+    <button class="tb run" type="button" data-cmd="runall" title="Alles uitvoeren (Ctrl+Shift+Enter)" aria-label="Alles uitvoeren"><svg viewBox="0 0 24 24"><path d="M3.5 5l8 7-8 7zM12.5 5l8 7-8 7z"/></svg><span class="lab">Alles uitvoeren</span></button>
+    <button class="tb" type="button" data-cmd="restart" title="Restart: alle definities wissen" aria-label="Restart"><svg viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4v4.5H15"/></svg><span class="lab">Restart</span></button>
+    <button class="tb stop" type="button" data-cmd="stop" title="Stop de berekening (wist de sessie)" aria-label="Stop" disabled><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg><span class="lab">Stop</span></button>
+  </div>
+</header>
 
-  <div class="group">Uitvoer</div>
-  <section id="out" class="stack" aria-live="polite"><p class="empty">Nog niets uitgevoerd.</p></section>
+<div class="main">
+  <aside class="side" id="side" aria-label="Paletten">
+    <input id="palsearch" class="palsearch" type="search" placeholder="Zoek in paletten" aria-label="Zoek in paletten" autocomplete="off">
+    <div id="palettes"></div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+  <main class="sheet" id="sheet">
+    <div class="ws">
+      <div class="notice" id="notice" role="status" hidden></div>
+      <div id="groups" aria-live="polite"></div>
+      <button class="addgrp" type="button" data-cmd="append">+ invoergroep</button>
+    </div>
+    <div class="drop" id="drop">Laat los om te openen (.mw, .mpl, .txt)</div>
+  </main>
+</div>
 
-  <div class="group">Voorbeelden</div>
-  <section id="examples" class="grid"></section>
+<footer class="status" id="status">
+  <span class="st-state"><span class="dot"></span><span id="st-state">Ready</span></span>
+  <span id="st-time"></span>
+  <span id="st-info" class="hide-m"></span>
+</footer>
+</div>
 
-  <div class="group">Geschiedenis <button id="clearhist" class="btn ghost small" type="button">Wissen</button></div>
-  <section id="hist" class="stack"><p class="empty">Leeg.</p></section>
-</main>
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <div class="dlg-head"><h2 id="dlg-title"></h2><button type="button" class="dlg-x" data-close aria-label="Sluiten">×</button></div>
+  <div id="dlg-body" class="dlg-body"></div>
+</dialog>
+<input type="file" id="file" accept=".mw,.mpl,.txt,.mm,.maple" hidden>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous" defer></script>
-<script src="/static/app.js" defer></script>
+<script src="/static/app.js?v=3" defer></script>
 </body>
 </html>

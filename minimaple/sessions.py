@@ -34,8 +34,11 @@ def _stub_run(code):
 def _worker(conn):
     lim = int(os.environ.get("MINIMAPLE_MEM_MB", "0"))
     if lim:
-        import resource
-        resource.setrlimit(resource.RLIMIT_AS, (lim << 20, lim << 20))
+        try:
+            import resource   # bestaat niet op Windows: dan geen geheugenlimiet
+            resource.setrlimit(resource.RLIMIT_AS, (lim << 20, lim << 20))
+        except (ImportError, ValueError, OSError):
+            pass
     os.environ.setdefault("MPLBACKEND", "Agg")
     try:
         from .interp import Interpreter

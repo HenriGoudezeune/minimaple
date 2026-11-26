@@ -1340,6 +1340,16 @@ def _bilin(M, ii, jj):
 
 def render(plot, path, dpi=110):
     """Schrijf plot als PNG naar path."""
+    if plot.kind == "image":
+        a = np.asarray(plot.layers[0]["data"], float)
+        h, w = a.shape[:2]
+        sc = min(1.0, 900.0 / max(h, w)) if max(h, w) > 900 else max(1.0, min(4.0, 300.0 / max(h, w)))
+        fig = Figure(figsize=(max(w * sc, 1) / dpi, max(h * sc, 1) / dpi), dpi=dpi, facecolor=BG)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis("off")
+        ax.imshow(a, cmap="gray", vmin=0, vmax=1, interpolation="nearest", aspect="equal")
+        fig.savefig(str(path), format="png", facecolor=BG, dpi=dpi)
+        return str(path)
     if plot.kind == "multi":
         r, c = plot.opts.get("shape", (1, len(plot.layers)))
         fig = Figure(figsize=(6.0 if c == 1 else 7.5, 3.4 * r + (0.3 if plot.opts.get("title") else 0)), dpi=dpi,

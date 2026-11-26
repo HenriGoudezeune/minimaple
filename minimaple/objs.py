@@ -74,13 +74,14 @@ class _Callable:
 
 
 class Scope:
-    __slots__ = ("vars", "parent", "locals", "globals")
+    __slots__ = ("vars", "parent", "locals", "globals", "pvals")
 
     def __init__(self, parent=None, vars=None):
         self.vars = {} if vars is None else vars
         self.parent = parent
         self.locals = set()
         self.globals = set()
+        self.pvals = {}
 
 
 class MProc(_Callable):

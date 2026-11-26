@@ -4,7 +4,7 @@ import threading
 import functools
 import sympy as sp
 
-from .values import (BUILTINS, PACKAGES, Ctx, MList, MSet, Seq, Range, Str, Table, Plot, split_opts)
+from .values import (BUILTINS, PACKAGES, Ctx, MList, MSet, Seq, Range, Str, Table, Plot, MImage, split_opts)
 from . import objs as _objs
 from .objs import (MapleError, RangeB, Scope, MProc, Composition, Repeat, DOp, PyFn, TypeDecl, MISSING,
                    ReturnEx, BreakEx, NextEx)
@@ -21,13 +21,13 @@ CONSTS = {
 }
 KNOWN_PACKAGES = {
     "linearalgebra", "plots", "plottools", "vectorcalculus", "student", "numtheory", "stringtools",
-    "codegeneration", "combinat", "geometry", "linalg", "inttrans", "orthopoly", "statistics", "polynomials",
+    "imagetools", "mtm", "codegeneration", "combinat", "geometry", "linalg", "inttrans", "orthopoly", "statistics", "polynomials",
     "difftool", "pdetools", "powerseries", "listtools", "arraytools", "type", "typesetting", "sets",
 }
 
 
 def _load_modules():
-    for m in ("calc", "linalg", "vecalc", "plots"):
+    for m in ("calc", "linalg", "vecalc", "plots", "imagetools"):
         try:
             __import__(f"minimaple.{m}")
         except ImportError:
@@ -38,6 +38,9 @@ def _load_modules():
 
 def is_numlit(x):
     return isinstance(x, sp.Basic) and x.is_number and x.is_real
+
+
+_OPCALL = (MProc, Composition, Repeat)
 
 
 class Interpreter(Ctx):
@@ -299,6 +302,9 @@ class Interpreter(Ctx):
             val = self.norm(val)
             if isinstance(val, Plot) and not any(val is p for p in self.plots):
                 self.plots.append(val)
+            elif isinstance(val, MImage) and show:
+                from .imagetools import image_plot
+                self.plots.append(image_plot(val))
             if not (isinstance(val, Seq) and len(val) == 0):
                 self.history = [val] + self.history[:2]
             is_null = isinstance(val, Seq) and len(val) == 0
@@ -396,6 +402,13 @@ class Interpreter(Ctx):
             if name == "restart":
                 return self.sf_restart(())
             return self.sym(name)
+        s = self.scope
+        while s is not None:
+            if name in s.vars:
+                if s.pvals.get(name) is v:      # parameterwaarde is al geevalueerd bij de aanroep
+                    return v
+                break
+            s = s.parent
         return self.full(v)
 
     def ev_ditto(self, n):
@@ -636,6 +649,15 @@ class Interpreter(Ctx):
         return isinstance(x, sp.Basic)
 
     def _bad(self, op, a, b):
+        if op in ("+", "-", "*", "/") and isinstance(a, _OPCALL) + isinstance(b, _OPCALL) >= 1 and \
+                all(isinstance(z, _OPCALL) or self._num(z) for z in (a, b)):
+            from .core_fns import arrow_from_expr, _op_names
+            fa = a if isinstance(a, _OPCALL) else b
+            names = _op_names(fa)
+            syms = [sp.Symbol(n) for n in names]
+            ea = self.apply(a, list(syms)) if isinstance(a, _OPCALL) else a
+            eb = self.apply(b, list(syms)) if isinstance(b, _OPCALL) else b
+            return arrow_from_expr(names, {"+": ea + eb, "-": ea - eb, "*": ea * eb, "/": ea / eb}[op])
         raise MapleError(f"invalid operands for {op}: {printer.to_text(a)} and {printer.to_text(b)}")
 
     def op_add(self, a, b):
@@ -647,12 +669,12 @@ class Interpreter(Ctx):
             M, s = (a, b) if self._mat(a) else (b, a)
             if self._num(s) and M.is_square:
                 return M + s * sp.eye(M.rows)
-            self._bad("+", a, b)
+            return self._bad("+", a, b)
         if self._num(a) and self._num(b):
             return a + b
         if isinstance(a, (MList, MSet)) and isinstance(b, (MList, MSet)):
             raise MapleError("unable to add lists or sets (use zip or map)")
-        self._bad("+", a, b)
+        return self._bad("+", a, b)
 
     def op_sub(self, a, b):
         if self._mat(a) or self._mat(b):
@@ -664,10 +686,10 @@ class Interpreter(Ctx):
                 return a - b * sp.eye(a.rows)
             if self._mat(b) and self._num(a) and b.is_square:
                 return a * sp.eye(b.rows) - b
-            self._bad("-", a, b)
+            return self._bad("-", a, b)
         if self._num(a) and self._num(b):
             return a - b
-        self._bad("-", a, b)
+        return self._bad("-", a, b)
 
     def op_mul(self, a, b):
         if self._mat(a) or self._mat(b):
@@ -678,13 +700,13 @@ class Interpreter(Ctx):
             M, s = (a, b) if self._mat(a) else (b, a)
             if self._num(s):
                 return M * s
-            self._bad("*", a, b)
+            return self._bad("*", a, b)
         if self._num(a) and self._num(b):
             r = a * b
             if r.is_Mul and r.is_number and r.has(sp.I) and not r.has(sp.Float):
                 r = sp.expand(r)
             return r
-        self._bad("*", a, b)
+        return self._bad("*", a, b)
 
     def op_div(self, a, b):
         if self._mat(a) and self._num(b):
@@ -698,7 +720,7 @@ class Interpreter(Ctx):
             if r.is_number and r.has(sp.I) and not r.has(sp.Float) and r.is_algebraic:
                 r = sp.expand(sp.radsimp(r))
             return r
-        self._bad("/", a, b)
+        return self._bad("/", a, b)
 
     def op_pow(self, a, b):
         if self._mat(a) and (isinstance(b, sp.Basic)):
@@ -714,20 +736,22 @@ class Interpreter(Ctx):
             if r.is_Pow and r.is_number and a.has(sp.I) and isinstance(b, sp.Integer):
                 r = sp.expand(r)
             return r
-        self._bad("^", a, b)
+        return self._bad("^", a, b)
 
     def op_dot(self, a, b):
         if self._mat(a) and self._mat(b):
             if a.shape[1] == 1 and b.shape[1] == 1 and a.shape[0] == b.shape[0]:
-                return sum((sp.conjugate(x) * y for x, y in zip(a, b)), sp.Integer(0))
+                return sp.expand(sum((sp.conjugate(x) * y for x, y in zip(a, b)), sp.Integer(0)))
             if a.cols != b.rows:
                 raise MapleError("Matrix dimension mismatch in multiplication")
+            if a.rows == 1 and b.cols == 1:      # rijvector . kolomvector = scalair (zoals in Maple)
+                return sp.expand((a * b)[0, 0])
             return a * b
         if self._num(a) and self._num(b):
             return a * b
         if (self._mat(a) and self._num(b)) or (self._mat(b) and self._num(a)):
             return a * b
-        self._bad(".", a, b)
+        return self._bad(".", a, b)
 
     def op_compose(self, a, b):
         return Composition([a, b])
@@ -742,14 +766,14 @@ class Interpreter(Ctx):
             return sp.Integer(int(a) % int(b))
         if self._num(a) and self._num(b):
             return sp.Mod(a, b)
-        self._bad("mod", a, b)
+        return self._bad("mod", a, b)
 
     def _rel(self, cls, a, b):
         if isinstance(a, Str) and isinstance(b, Str):
             ops = {sp.StrictLessThan: a < b, sp.LessThan: a <= b, sp.StrictGreaterThan: a > b, sp.GreaterThan: a >= b}
             return sp.true if ops[cls] else sp.false
         if not (self._num(a) and self._num(b)):
-            self._bad("<", a, b)
+            return self._bad("<", a, b)
         if a.is_number and b.is_number and a.is_real and b.is_real:
             r = cls(a, b)
             if r is sp.true or r is sp.false:
@@ -784,28 +808,28 @@ class Interpreter(Ctx):
     def op_subset(self, a, b):
         if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
             return sp.true if all(any(_same(x, y) for y in b) for x in a) else sp.false
-        self._bad("subset", a, b)
+        return self._bad("subset", a, b)
 
     def op_union(self, a, b):
         if isinstance(a, (MSet, MList)) and isinstance(b, (MSet, MList)):
             return self.mkset(list(a) + list(b))
         if isinstance(a, sp.Set) and isinstance(b, sp.Set):
             return a | b
-        self._bad("union", a, b)
+        return self._bad("union", a, b)
 
     def op_minus(self, a, b):
         if isinstance(a, (MSet, MList)) and isinstance(b, (MSet, MList)):
             return self.mkset([x for x in a if not any(_same(x, y) for y in b)])
         if isinstance(a, sp.Set) and isinstance(b, sp.Set):
             return a - b
-        self._bad("minus", a, b)
+        return self._bad("minus", a, b)
 
     def op_intersect(self, a, b):
         if isinstance(a, (MSet, MList)) and isinstance(b, (MSet, MList)):
             return self.mkset([x for x in a if any(_same(x, y) for y in b)])
         if isinstance(a, sp.Set) and isinstance(b, sp.Set):
             return a & b
-        self._bad("intersect", a, b)
+        return self._bad("intersect", a, b)
 
     def op_xor(self, a, b):
         ta, tb = self.truth(a), self.truth(b)
@@ -1275,6 +1299,7 @@ class Interpreter(Ctx):
                             raise MapleError(f"invalid input: {p.name or 'procedure'} expects its {ordn} argument, "
                                              f"{pname}, to be of type {printer.to_text(tv)}, but received {printer.to_text(val)}")
                     scope.vars[pname] = val
+                    scope.pvals[pname] = val
                 elif dflt is not None:
                     scope.vars[pname] = self.ev(dflt)
             if p.arrow:

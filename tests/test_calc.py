@@ -250,9 +250,11 @@ def test_heat_wave_pde():
     # randvw: u(0,t)=u(pi,t)=0, u(x,0)=sin(x) + 3 sin(2x) -> sin(x)e^{-kt}+3 sin(2x) e^{-4kt}
     conds = MSet([pde, eq(U(0, t), 0), eq(U(pi, t), 0), eq(U(x, 0), sp.sin(x) + 3*sp.sin(2*x))])
     r = C('pdsolve', conds, U(x, t))
-    assert isinstance(r.rhs, sp.Sum)
-    nn = r.rhs.limits[0][0]
-    val = sum(r.rhs.function.subs({nn: j, x: 0.7, t: 0.3, kk: 0.5}) for j in range(1, 8))
+    if isinstance(r.rhs, sp.Sum):
+        nn = r.rhs.limits[0][0]
+        val = sum(r.rhs.function.subs({nn: j, x: 0.7, t: 0.3, kk: 0.5}) for j in range(1, 8))
+    else:                                   # eindige Fourierreeks in gesloten vorm
+        val = r.rhs.subs({x: 0.7, t: 0.3, kk: 0.5})
     ex = np.sin(0.7)*np.exp(-0.15) + 3*np.sin(1.4)*np.exp(-4*0.15)
     assert abs(float(val) - ex) < 1e-9
     conds = MSet([pde, eq(U(0, t), 0), eq(U(pi, t), 0), eq(U(x, 0), x*(pi-x))])
@@ -266,8 +268,11 @@ def test_heat_wave_pde():
     conds = MSet([wv, eq(U(0, t), 0), eq(U(pi, t), 0), eq(U(x, 0), sp.sin(x)),
                   eq(sp.Subs(sp.Derivative(U(x, s), s), s, 0), 0)])
     r = C('pdsolve', conds, U(x, t))
-    nn = r.rhs.limits[0][0]
-    val = sum(r.rhs.function.subs({nn: j, x: 0.7, t: 0.3, c: 2.0}) for j in range(1, 6))
+    if isinstance(r.rhs, sp.Sum):
+        nn = r.rhs.limits[0][0]
+        val = sum(r.rhs.function.subs({nn: j, x: 0.7, t: 0.3, c: 2.0}) for j in range(1, 6))
+    else:
+        val = r.rhs.subs({x: 0.7, t: 0.3, c: 2.0})
     assert abs(float(val) - np.sin(0.7)*np.cos(0.6)) < 1e-9
     # eerste orde
     r = C('pdsolve', eq(U(x, t).diff(x) + U(x, t).diff(t), 0), U(x, t))

@@ -1097,39 +1097,64 @@ def about(ctx, x):
     return Seq()
 
 
+def arrow_from_expr(names, d):
+    """Pijlfunctie (names) -> d als MProc (py-implementatie via substitutie)."""
+    syms = [sp.Symbol(n) for n in names]
+    p = ", ".join(names)
+    pt = names[0] if len(names) == 1 else f"({p})"
+    return MProc(params=[(n, None, None) for n in names], arrow=True, src=f"{pt} -> {T(d)}",
+                 py=lambda c, *a, _d=d, _s=syms: subs_value(_d, list(zip(_s, a))))
+
+
+def _op_names(f):
+    if isinstance(f, MProc):
+        return [p[0] for p in f.params]
+    return ["x"]
+
+
 @core("D")
 def D(ctx, f, *rest):
     idx = getattr(ctx, "_index_ctx", None) or []
+    orders = [pyint(i) - 1 for i in idx]
     if isinstance(f, DOp):
         return DOp(f.name, f.order + 1)
-    if isinstance(f, MProc) or isinstance(f, Composition):
-        names = [p[0] for p in f.params] if isinstance(f, MProc) else ["x"]
+    if isinstance(f, (MProc, Composition, Repeat)):
+        names = _op_names(f)
         syms = [sp.Symbol(n) for n in names]
-        body = ctx.call(f, *syms)
-        orders = [pyint(i) - 1 for i in idx] if idx else [0]
-        d = body
-        for o in orders:
+        d = ctx.call(f, *syms)
+        for o in (orders or [0]):
+            if not 0 <= o < len(syms):
+                raise MapleError("invalid input: D[i] index out of range")
             d = sp.diff(d, syms[o])
-        p = ", ".join(names)
-        pt = names[0] if len(names) == 1 else f"({p})"
-        return MProc(params=[(n, None, None) for n in names], arrow=True, src=f"{pt} -> {T(d)}",
-                     py=lambda c, *a, _d=d, _s=syms: subs_value(_d, list(zip(_s, a))))
+        return arrow_from_expr(names, d)
     if isinstance(f, sp.Symbol):
         fn = BUILTINS.get(f.name)
         x = sp.Symbol("x")
         if fn is not None and f.name not in ("y", "f", "g", "u", "v", "w") and f.name in CORE or f.name in (
                 "sin", "cos", "tan", "exp", "ln", "sqrt", "arctan", "arcsin", "arccos", "sinh", "cosh", "tanh", "erf"):
             try:
-                body = BUILTINS[f.name](ctx, x)
-                d = sp.diff(body, x)
-                return MProc(params=[("x", None, None)], arrow=True, src=f"x -> {T(d)}",
-                             py=lambda c, a, _d=d: _d.subs(x, a))
+                d = BUILTINS[f.name](ctx, x)
+                for _ in (orders or [0]):
+                    d = sp.diff(d, x)
+                return arrow_from_expr(["x"], d)
             except Exception:
                 pass
         return DOp(f.name)
+    if isinstance(f, sp.MatrixBase):
+        return f.applyfunc(lambda e: D(ctx, e))
     if isinstance(f, sp.Basic):
-        # D(expr) bij functiesymbool: niet ondersteund
-        raise MapleError("invalid input: D expects a procedure or function name")
+        # D op een expressie: afgeleide naar de (enige) vrije veranderlijke; D[i] kiest de i-de (alfabetisch)
+        fs = sorted(f.free_symbols, key=lambda s: s.name)
+        if not fs:
+            return sp.Integer(0)
+        if not orders and len(fs) > 1:
+            raise MapleError("invalid input: D of an expression with several variables needs an index D[i]")
+        d = f
+        for o in (orders or [0]):
+            if not 0 <= o < len(fs):
+                raise MapleError("invalid input: D[i] index out of range")
+            d = sp.diff(d, fs[o])
+        return d
     raise MapleError("invalid input to D")
 
 

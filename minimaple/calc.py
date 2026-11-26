@@ -132,11 +132,14 @@ def _risky_integrand(f):
 def _limited(fn, timeout=6.0):
     """Voer fn() uit in een gevorkt proces met tijdslimiet; None bij timeout of fout."""
     import multiprocessing as mp
+    import os
     import pickle
+    if not hasattr(os, 'fork'):
+        return _limited_thread(fn, timeout)
     try:
         mpc = mp.get_context('fork')
     except ValueError:
-        return fn()
+        return _limited_thread(fn, timeout)
     rcv, snd = mpc.Pipe(duplex=False)
 
     def work():
@@ -158,6 +161,24 @@ def _limited(fn, timeout=6.0):
     pr.kill()
     pr.join(1)
     return out
+
+
+def _limited_thread(fn, timeout):
+    """Fallback zonder fork (Windows): fn() in een daemon-thread. Bij timeout geven we None
+    terug; de thread kan niet gedood worden en rekent op de achtergrond verder (de
+    sessie-timeout van het workerproces blijft de harde grens)."""
+    import threading
+    box = {}
+
+    def work():
+        try:
+            box['v'] = fn()
+        except BaseException:
+            box['v'] = None
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    t.join(timeout)
+    return box.get('v')
 
 
 def _heav_piece(f):
@@ -967,11 +988,63 @@ def _trigify(rhs):
     return out + rest
 
 
+def _basis_key(b, x):
+    """Sorteersleutel voor basisfuncties (Maple-volgorde): stijgende exponentiele groei, dan x-macht, sin voor cos."""
+    rate = sp.Integer(0)
+    for z in b.atoms(sp.exp):
+        try:
+            rate += sp.expand(z.args[0]).coeff(x, 1)
+        except Exception:
+            pass
+    deg = 0
+    try:
+        pw = sp.Poly(sp.powsimp(b.replace(sp.exp, lambda a: 1).replace(sp.sin, lambda a: 1).replace(sp.cos, lambda a: 1)), x)
+        deg = pw.degree()
+    except Exception:
+        pass
+    trig = 0 if b.has(sp.sin) else (1 if b.has(sp.cos) else -1)
+    try:
+        rk = (0, float(rate), 0)
+    except Exception:
+        rk = (1, 0.0, str(rate))
+    return (rk, deg, trig, str(b))
+
+
+def _normalize_consts(rhs, x):
+    """Schrijf een lineaire oplossing als _C1*b1 + _C2*b2 + ... + particulier, met genummerde basisfuncties in
+    Maple-volgorde (bv. _C1*exp(-2*x) + _C2*exp(-x))."""
+    cs = sorted([c for c in rhs.free_symbols if re.match(r'^_C\d+$', c.name)], key=lambda c: int(c.name[2:]))
+    if not cs:
+        return rhs
+    e = sp.expand(rhs)
+    basis, rest = [], e
+    for c in cs:
+        co = sp.expand(sp.diff(e, c))
+        if co.free_symbols & set(cs):
+            return rhs                       # niet-lineair in de constanten: ongemoeid laten
+        basis.append(sp.factor_terms(sp.powsimp(co)))
+        rest = rest - co * c
+    rest = sp.expand(rest)
+    if rest.free_symbols & set(cs):
+        return rhs
+    order = sorted(range(len(cs)), key=lambda i: _basis_key(basis[i], x))
+    out = sum(sp.Symbol(f"_C{k + 1}") * basis[i] for k, i in enumerate(order))
+    if rest != 0:
+        out = out + rest
+    return out
+
+
 def _fix_fun_consts(e):
     e = _rename_consts(e)
     if isinstance(e, sp.Equality) and not isinstance(e.rhs, (list, tuple)):
         try:
             e = sp.Eq(e.lhs, _trigify(e.rhs), evaluate=False)
+        except Exception:
+            pass
+        try:
+            lhs = e.lhs
+            if isinstance(lhs, AppliedUndef) and len(lhs.args) == 1 and isinstance(lhs.args[0], sp.Symbol):
+                e = sp.Eq(lhs, _normalize_consts(e.rhs, lhs.args[0]), evaluate=False)
         except Exception:
             pass
     return e
@@ -1172,12 +1245,27 @@ def _dsolve_laplace(exprs, icd, funcs):
 # ------------------------------------------------------------------ pdsolve
 @maple('pdsolve')
 def pdsolve(ctx, pde, *rest):
+    from . import pde as _pde
     pos, opts = split_opts(list(rest))
     fn = next((r for r in pos if isinstance(r, AppliedUndef)), None)
-    items = _gather(pde)
-    pdes = [q for q in items if isinstance(q, sp.Equality) and not _pde_cond(q)] or \
-           [q for q in items if not isinstance(q, sp.Equality)]
-    conds = [q for q in items if isinstance(q, sp.Equality) and _pde_cond(q)]
+    hint = None
+    items = list(_gather(pde))
+    for r in pos:
+        if isinstance(r, AppliedUndef):
+            continue
+        if isinstance(r, sp.Equality) and isinstance(r.lhs, sp.Symbol) and r.lhs.name in ('HINT', 'hint'):
+            hint = r.rhs
+        elif isinstance(r, sp.Equality) and isinstance(r.lhs, sp.Symbol) and \
+                r.lhs.name in ('IBC', 'IC', 'BC', 'ICs', 'BCs', 'IBCs'):
+            items += list(_gather(r.rhs))
+        elif isinstance(r, sp.Symbol) and r.name in ('build', 'HINT'):
+            continue
+        else:
+            items += list(_gather(r))
+    items = [q for q in items if isinstance(q, (sp.Basic,)) and not isinstance(q, sp.Symbol)]
+    first = next((q for q in items if isinstance(q, sp.Equality) and not _pde_cond(q)), None)
+    pdes = [first] if first is not None else [q for q in items if not isinstance(q, sp.Equality)]
+    conds = [q for q in items if isinstance(q, sp.Equality) and q is not first and _pde_cond(q)]
     if not pdes:
         raise CalcError("pdsolve: PDE ontbreekt")
     eq = _expr(pdes[0])
@@ -1186,6 +1274,17 @@ def pdsolve(ctx, pde, *rest):
         if not fs:
             raise CalcError("pdsolve: onbekende functie niet gevonden")
         fn = fs[0]
+    if conds:
+        try:
+            r = _pde.solve(eq, fn, conds)
+        except _pde.PdeError as e:
+            raise CalcError(str(e))
+        if r is not None:
+            return r
+    elif hint is not None and len(fn.args) == 2 and _hint_name(hint) in ('+', 'sum', 'sumseparable'):
+        r = _pde_sum_separation(eq, fn)
+        if r is not None:
+            return r
     u = fn
     if len(u.args) != 2:
         res = sp.pdsolve(eq, u)
@@ -1209,6 +1308,8 @@ def pdsolve(ctx, pde, *rest):
         r = _pde_series(ctx, co, u, x, t, conds)
         if r is not None:
             return r
+    if conds and linear:
+        raise CalcError("pdsolve: deze combinatie van PDV en rand-/beginvoorwaarden wordt niet ondersteund")
     if not linear or (co['xx'] == 0 and co['tt'] == 0):
         res = sp.pdsolve(eq, u)
         return _rename_pde(res)
@@ -1216,12 +1317,34 @@ def pdsolve(ctx, pde, *rest):
 
 
 def _pde_cond(q):
-    l = q.lhs
-    if isinstance(l, AppliedUndef):
-        return any(a.is_number for a in l.args)
-    if isinstance(l, sp.Subs):
-        return True
-    return False
+    """Rand-/beginvoorwaarde (geen PDV): bevat geen niet-gepunte afgeleide."""
+    z = q.xreplace({sb: sp.Integer(0) for sb in q.atoms(sp.Subs)})
+    if z.atoms(sp.Derivative):
+        return False
+    return bool(q.atoms(AppliedUndef) or q.atoms(sp.Subs))
+
+
+def _hint_name(h):
+    return str(h).strip("'\"` ").lower()
+
+
+def _pde_sum_separation(eq, u):
+    """HINT='+': u = _F1(x) + _F2(t) voor PDV's waarin de afgeleiden naar x en t te scheiden zijn."""
+    x, t = u.args
+    F1, F2 = sp.Function('_F1'), sp.Function('_F2')
+    c = sp.Symbol('_c1')
+    cand = F1(x) + F2(t)
+    e = sp.expand(eq.subs(u, cand).doit())
+    if e == 0 or e.has(u):
+        return None
+    ex = e.as_independent(t)[0] if not e.has(t) else None
+    px, pt = [], []
+    for term in sp.Add.make_args(e):
+        (pt if term.has(t) else px).append(term)
+    if not px or not pt or any(tm.has(x) and tm.has(t) for tm in sp.Add.make_args(e)):
+        return None
+    return Seq([sp.Eq(u, cand, evaluate=False),
+                MSet([sp.Eq(sp.Add(*px), c, evaluate=False), sp.Eq(-sp.Add(*pt), c, evaluate=False)])])
 
 
 def _rename_pde(res):

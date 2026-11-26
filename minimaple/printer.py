@@ -161,8 +161,10 @@ class MapleStr(StrPrinter):
         return f"Int({f}, {', '.join(ls)})"
 
     def _print_Sum(self, e):
-        l = e.limits[0]
-        return f"Sum({self._print(e.function)}, {self._print(l[0])} = {self._print(l[1])}..{self._print(l[2])})"
+        out = self._print(e.function)
+        for l in reversed(e.limits):
+            out = f"Sum({out}, {self._print(l[0])} = {self._print(l[1])}..{self._print(l[2])})"
+        return out
 
     def _print_Product(self, e):
         l = e.limits[0]
