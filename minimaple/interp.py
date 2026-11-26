@@ -41,6 +41,8 @@ def is_numlit(x):
 
 
 _OPCALL = (MProc, Composition, Repeat)
+_VALIDATE_NAMES = {'solve', 'fsolve', 'isolate', 'dsolve', 'pdsolve', 'diff', 'Diff', 'int', 'integrate', 'Int',
+                   'limit', 'Limit', 'series', 'taylor'}
 
 
 class Interpreter(Ctx):
@@ -1396,6 +1398,12 @@ class Interpreter(Ctx):
         return self.call_builtin(nm, fn, args, extra)
 
     def call_builtin(self, nm, fn, args, extra=None):
+        if nm in _VALIDATE_NAMES:
+            from .calc import validate_args
+            try:
+                validate_args(nm, args)
+            except ValueError as e:
+                raise MapleError(str(e)) from None
         self._index_ctx = extra
         try:
             return fn(self, *args)

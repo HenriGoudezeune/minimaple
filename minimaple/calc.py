@@ -1637,3 +1637,138 @@ def fft(ctx, a, *rest):
 def ifft(ctx, a, *rest):
     v, k, sh = _to_np(a)
     return _from_np(np.fft.ifft(v), k, sh)
+
+
+# ------------------------------------------------------------------ argumentcontrole (Maple-achtige foutmeldingen)
+_ORD = {1: "1st", 2: "2nd", 3: "3rd"}
+
+
+def _ordn(i):
+    return _ORD.get(i, f"{i}th")
+
+
+def _txt(v):
+    from . import printer
+    try:
+        if isinstance(v, Str):
+            return '"' + str(v) + '"'
+        return printer._P._print(v)
+    except Exception:
+        return str(v)
+
+
+def _is_container(v):
+    return isinstance(v, (MList, MSet, Seq, list, tuple))
+
+
+def _alg_ok(v, allow_matrix=False, allow_bool=False):
+    """Is v een algebraisch object (expressie, vergelijking, relatie) zoals solve/int/... die verwacht?"""
+    if isinstance(v, sp.MatrixBase):
+        return allow_matrix
+    if isinstance(v, Str):
+        return False
+    if isinstance(v, (sp.Equality, sp.Unequality)) or type(v).__name__ in ("Equality", "Unequality"):
+        sides = v.args[:2] if hasattr(v, "args") else ()
+        return all(_alg_ok(s, allow_matrix=False) for s in sides)
+    if isinstance(v, sp.core.relational.Relational):
+        return all(_alg_ok(s) for s in v.args)
+    if v is sp.true or v is sp.false or isinstance(v, (sp.And, sp.Or, sp.Not)):
+        return allow_bool or True
+    if isinstance(v, sp.Basic):
+        return not any(isinstance(a, sp.MatrixBase) for a in v.args)
+    return False
+
+
+def _var_ok(v):
+    """Naam, geindexeerde naam of functietoepassing (y(x), laplace(y(t),t,s), diff(y(x),x), ...)."""
+    if isinstance(v, (sp.Symbol, sp.Indexed, AppliedUndef, sp.Derivative)):
+        return True
+    return isinstance(v, sp.Basic) and not isinstance(v, sp.MatrixBase) and not v.is_number and \
+        isinstance(v, (sp.Function, sp.Subs)) or type(v).__name__.endswith('Transform')
+
+
+def _bad(nm, v, i, lib=True):
+    msg = f"invalid input: {nm} received {_txt(v)}, which is not valid for its {_ordn(i)} argument"
+    if isinstance(v, sp.MatrixBase) or (type(v).__name__ == "Equality" and any(
+            isinstance(s, sp.MatrixBase) for s in getattr(v, "args", ()))):
+        msg += " (Vector/Matrix equations are not valid here: compare components, e.g. convert(lhs - rhs, list) or Equate(lhs, rhs))"
+    raise CalcError(f"(in {nm}) {msg}" if lib else msg)
+
+
+def _check_eqs(nm, eqs, i=1, allow_matrix=False):
+    items = list(eqs) if _is_container(eqs) else [eqs]
+    if isinstance(eqs, sp.MatrixBase) and not allow_matrix:
+        _bad(nm, eqs, i)
+    for q in items:
+        if not _alg_ok(q, allow_matrix=allow_matrix, allow_bool=True):
+            _bad(nm, eqs if not _is_container(eqs) else q, i)
+
+
+def _check_vars(nm, v, i, ranges=False, lib=True):
+    items = list(v) if _is_container(v) else [v]
+    for x in items:
+        if _var_ok(x):
+            continue
+        if ranges and isinstance(x, sp.Equality) and _var_ok(x.lhs):
+            continue
+        if ranges and type(x).__name__ == "Equality" and _var_ok(x.args[0]):
+            continue
+        _bad(nm, x, i, lib)
+
+
+def validate_args(nm, args):
+    """Wordt door de interpreter voor elke builtin-aanroep opgeroepen: ongeldige argumenttypes geven een
+    Maple-achtige fout in plaats van een stil leeg resultaat."""
+    chk = _VALIDATORS.get(nm)
+    if chk is not None and args:
+        chk(nm, list(args))
+
+
+def _v_solve(nm, a):
+    _check_eqs(nm, a[0], 1)
+    pos = [x for x in a[1:] if not (isinstance(x, sp.Equality) and isinstance(x.lhs, sp.Symbol)
+                                     and x.lhs.name in ('explicit', 'useassumptions', 'parameters', 'maxsols',
+                                                        'complex', 'avoid', 'fulldigits', 'AllSolutions'))
+           and not (isinstance(x, sp.Symbol) and x.name in ('complex', 'maxsols', 'fulldigits', 'real', 'explicit',
+                                                            'AllSolutions', 'useassumptions'))]
+    if pos:
+        _check_vars(nm, pos[0], 2, ranges=(nm == 'fsolve'))
+
+
+def _v_dsolve(nm, a):
+    _check_eqs(nm, a[0], 1)
+    for i, x in enumerate(a[1:], 2):
+        if _is_container(x) or isinstance(x, AppliedUndef):
+            _check_vars(nm, x, i, ranges=True)
+        elif isinstance(x, (Str, sp.MatrixBase)) or (isinstance(x, sp.Basic) and x.is_number):
+            _bad(nm, x, i)
+
+
+def _v_calc(nm, a, lib=True):
+    f = a[0]
+    if isinstance(f, (Str,)) or not (isinstance(f, (sp.Basic, sp.MatrixBase)) or _is_container(f)):
+        _bad(nm, f, 1, lib)
+    for i, x in enumerate(a[1:], 2):
+        if isinstance(x, Seq):
+            continue
+        if _is_container(x):
+            _check_vars(nm, x, i, ranges=True, lib=lib)
+        elif _var_ok(x) or (isinstance(x, sp.Equality) and _var_ok(x.lhs)) or \
+                (type(x).__name__ == "Equality" and _var_ok(x.args[0])):
+            continue
+        elif nm in ('int', 'integrate', 'Int', 'series', 'taylor', 'limit', 'Limit') and isinstance(x, sp.Basic) \
+                and not isinstance(x, sp.MatrixBase) and (x.is_number or isinstance(x, sp.Symbol)) and i > 2:
+            continue                     # opties/orde (series(f, x=0, 4))
+        elif isinstance(x, sp.Symbol):
+            continue
+        else:
+            _bad(nm, x, i, lib)
+
+
+_VALIDATORS = {
+    'solve': _v_solve, 'fsolve': _v_solve, 'isolate': lambda nm, a: _check_eqs(nm, a[0], 1),
+    'dsolve': _v_dsolve, 'pdsolve': lambda nm, a: _check_eqs(nm, a[0], 1),
+    'diff': lambda nm, a: _v_calc(nm, a, lib=False), 'Diff': lambda nm, a: _v_calc(nm, a, lib=False),
+    'int': _v_calc, 'integrate': _v_calc, 'Int': _v_calc, 'limit': _v_calc, 'Limit': _v_calc,
+    'series': _v_calc, 'taylor': _v_calc,
+}

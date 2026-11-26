@@ -1026,3 +1026,24 @@ def IsMatrixShape(ctx, A, shape, *r):
 @maple('IsZero', pkg=PKG)
 def IsZero(ctx, A):
     return _tf(all(sp.simplify(e) == 0 for e in _mat(A)))
+
+
+@maple('Equate', pkg=PKG)
+def Equate(ctx, a, b):
+    """Equate(A, B): lijst van componentsgewijze vergelijkingen A[i] = B[i] (Vectoren, Matrices of lijsten)."""
+    def items(x):
+        if _is_mat(x):
+            return list(x) if (x.cols == 1 or x.rows == 1) else [x[i, j] for i in range(x.rows) for j in range(x.cols)]
+        if isinstance(x, (list, tuple)):
+            return list(x)
+        return None
+    la_, lb = items(a), items(b)
+    if la_ is None and lb is None:
+        raise LAError('Equate: Vectors, Matrices or lists expected')
+    if la_ is None:
+        la_ = [a] * len(lb)
+    if lb is None:
+        lb = [b] * len(la_)
+    if len(la_) != len(lb):
+        raise LAError('Equate: dimensions of the arguments must match')
+    return MList([sp.Eq(x, y, evaluate=False) for x, y in zip(la_, lb)])
