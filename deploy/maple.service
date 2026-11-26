@@ -1,0 +1,9 @@
+[Unit]
+Description=mini-Maple (127.0.0.1:8750)
+[Service]
+WorkingDirectory=%h/work/minimaple-live
+ExecStart=%h/work/minimaple/.venv/bin/python -m minimaple.web
+Environment=MINIMAPLE_PORT=8750 MINIMAPLE_PUBLIC=1 MINIMAPLE_HOSTS=maple.hydrargyrum.be MINIMAPLE_TIMEOUT=20 MINIMAPLE_MAX_SESSIONS=8 MINIMAPLE_MAX_PARALLEL=4 MINIMAPLE_MEM_MB=1500 MINIMAPLE_RATE=60
+Restart=on-failure
+[Install]
+WantedBy=default.target
