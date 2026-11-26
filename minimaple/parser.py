@@ -113,6 +113,18 @@ def tokenize(src):
                 j += 1
             toks.append(Tok("name", src[i:j], i, j))
             i = j
+        elif c == "&" and i + 1 < n and (src[i + 1].isalpha() or src[i + 1] in "+-/<>=!@~|%$") and \
+                not src.startswith("&*", i) and not src.startswith("&^", i) and \
+                not (src.startswith("&x", i) and not (i + 2 < n and (src[i + 2].isalnum() or src[i + 2] == "_"))):
+            j = i + 1
+            if src[j].isalpha():
+                while j < n and (src[j].isalnum() or src[j] == "_"):
+                    j += 1
+            else:
+                while j < n and src[j] in "+-/<>=!@~|%$":
+                    j += 1
+            toks.append(Tok("op", "&" + src[i + 1:j], i, j))
+            i = j
         elif c == "^" and src[i + 1:i + 3] in ("%T", "%H") and not src[i + 3:i + 4].isalnum():
             toks.append(Tok("op", "^" + src[i + 1:i + 3], i, i + 3))
             i += 3
@@ -330,8 +342,12 @@ class Parser:
             if kw_elem:
                 op = op + "~"
             if op not in BIN:
-                break
-            prec, right = BIN[op]
+                if t.t == "op" and op.startswith("&") and len(op) > 1:
+                    prec, right = 15, False            # neutrale operator &name / &+
+                else:
+                    break
+            else:
+                prec, right = BIN[op]
             if prec < minp:
                 break
             self.next()
@@ -372,6 +388,8 @@ class Parser:
             op = "*"
         if op == "&x":
             return ("call", ("name", "CrossProduct"), [left, self.expr(nextp)])
+        if op.startswith("&") and op not in BIN:
+            return ("call", ("name", op), [left, self.expr(nextp)])
         return ("bin", op, left, self.expr(nextp))
 
     def rhs_start_pos(self, left):
@@ -572,7 +590,7 @@ class Parser:
             return self.use(t)
         if v == "if":
             return self.if_(t)
-        if v in ("for", "while", "from"):
+        if v in ("for", "while", "from", "to", "by", "do"):
             return self.loop(t)
         if v == "return":
             nt = self.peek()

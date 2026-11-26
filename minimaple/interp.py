@@ -543,30 +543,57 @@ class Interpreter(Ctx):
     def ev_typeop(self, n):
         return TypeDecl(self.ev(n[1]), self.ev(n[2]), self)
 
-    def ev_concat(self, n):
-        l = n[1]
-        r = self.ev(n[2])
-        if isinstance(r, sp.Basic) and not isinstance(r, sp.Symbol):
-            rs = printer.to_text(r)
-        else:
-            rs = r.name if isinstance(r, sp.Symbol) else str(r)
+    def _concat_left(self, l):
+        """Linkeroperand van ||: een naam wordt NIET geevalueerd (a||1 -> a1), een string blijft string."""
         if l[0] == "name":
-            lv = self.getvar(l[1])
-            if lv is MISSING or isinstance(lv, sp.Symbol):
-                name = l[1] + rs
-                return self.ev(("name", name))
-        lv = self.ev(l)
-        if isinstance(lv, Str):
-            return Str(str(lv) + (str(r) if isinstance(r, Str) else rs))
-        if isinstance(lv, sp.Symbol):
-            return self.ev(("name", lv.name + rs))
-        return Str(printer.to_text(lv) + rs)
+            return l[1], False
+        if l[0] == "str":
+            return l[1], True
+        if l[0] == "concat":
+            v = self._concat_raw(l)
+            if isinstance(v, list):
+                raise MapleError("invalid concatenation of a sequence")
+            return v
+        v = self.ev(l)
+        if isinstance(v, Str):
+            return str(v), True
+        if isinstance(v, sp.Symbol):
+            return v.name, False
+        return printer.to_text(v), False
+
+    @staticmethod
+    def _cat_text(r):
+        if isinstance(r, Str):
+            return str(r)
+        if isinstance(r, sp.Symbol):
+            return r.name
+        return printer.to_text(r)
+
+    def _concat_raw(self, n):
+        """-> (tekst, is_string) of een lijst daarvan als de rechteroperand een bereik/reeks is."""
+        left, is_str = self._concat_left(n[1])
+        r = self.ev(n[2])
+        if isinstance(r, Range) and isinstance(r.lo, sp.Integer) and isinstance(r.hi, sp.Integer):
+            r = Seq([sp.Integer(i) for i in range(int(r.lo), int(r.hi) + 1)])
+        if isinstance(r, Seq):
+            return [(left + self._cat_text(x), is_str) for x in r]
+        return left + self._cat_text(r), is_str
+
+    def ev_concat(self, n):
+        raw = self._concat_raw(n)
+
+        def mk(t):
+            text, is_str = t
+            return Str(text) if is_str else self.ev(("name", text))
+        if isinstance(raw, list):
+            return Seq([mk(t) for t in raw])
+        return mk(raw)
 
     def concat_name(self, node):
-        l = node[1]
-        r = self.ev(node[2])
-        rs = r.name if isinstance(r, sp.Symbol) else printer.to_text(r)
-        return l[1] + rs
+        raw = self._concat_raw(node)
+        if isinstance(raw, list):
+            raise MapleError("invalid left-hand side of assignment (sequence of names)")
+        return raw[0]
 
     def _module_of(self, node):
         """Waarde van de linkerkant van A:-f als die een module is, anders None."""
@@ -1832,13 +1859,21 @@ class Interpreter(Ctx):
             i = i + 1
         return out
 
-    def _iterate(self, body, spec, combine):
+    def _iterate(self, body, spec, combine, step=None):
         """spec: ('bin','=',('name',v),range|lijst) of ('bin','in',('name',v),lijst)."""
         if spec[0] != "bin" or spec[1] not in ("=", "in") or spec[2][0] != "name":
             raise MapleError("invalid arguments: second argument must be of the form i=a..b or i in L")
         var = spec[2][1]
         src = spec[3]
-        if src[0] == "range" and spec[1] == "=":
+        if src[0] == "range" and spec[1] == "=" and step is not None:
+            lo, hi, st = self.ev(src[1]), self.ev(src[2]), self.ev(step)
+            if not (isinstance(st, sp.Basic) and st.is_number and st != 0):
+                raise MapleError("invalid step in seq")
+            vals, i = [], lo
+            while self.truth(sp.Le(i, hi) if st > 0 else sp.Ge(i, hi)):
+                vals.append(i)
+                i = i + st
+        elif src[0] == "range" and spec[1] == "=":
             vals = self._range_vals(self.ev(src[1]), self.ev(src[2]))
         else:
             L = self.ev(src)
@@ -1879,8 +1914,11 @@ class Interpreter(Ctx):
     def sf_seq(self, argn):
         sa = self._spec_args(argn, "seq")
         if sa is None:
-            return self.ev(argn[0])
-        return self._iterate(sa[0], sa[1], lambda xs: Seq(xs))
+            v = self.ev(argn[0])          # seq(L): de elementen van een container
+            if isinstance(v, (MList, MSet, sp.MatrixBase)):
+                return Seq(list(v))
+            return v
+        return self._iterate(sa[0], sa[1], lambda xs: Seq(xs), argn[2] if len(argn) > 2 else None)
 
     def _one_arg_fold(self, argn, op, unit):
         c = self.ev(argn[0])

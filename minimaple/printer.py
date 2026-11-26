@@ -71,6 +71,16 @@ class MapleStr(StrPrinter):
     # getallen en constanten
     def _print_Float(self, e, *a): return fmt_float(e)
     def _print_Order(self, e): return "O(" + self._print(e.args[0]) + ")"
+
+    def _print_Add(self, expr, order=None):
+        # een O(...)-term (na subs in een reeks) achteraan, zoals Maple
+        isO = lambda a: isinstance(a, sp.Function) and getattr(a.func, "__name__", "") == "O"
+        if any(isO(a) for a in expr.args):
+            rest = [a for a in expr.args if not isO(a)]
+            os_ = [a for a in expr.args if isO(a)]
+            txt = self._print(sp.Add(*rest)) if rest else ""
+            return " + ".join(([txt] if txt else []) + [self._print(o) for o in os_])
+        return super()._print_Add(expr, order)
     def _print_Pi(self, e): return "Pi"
     def _print_Exp1(self, e): return "exp(1)"
     def _print_EulerGamma(self, e): return "gamma"
@@ -102,8 +112,10 @@ class MapleStr(StrPrinter):
         name = RENAME.get(name, name)
         if name == "Dirac" and len(e.args) == 2:
             return f"Dirac({self._print(e.args[1])}, {self._print(e.args[0])})"
-        if name == "arctan" and False:
-            pass
+        if name.startswith("&") and len(name) > 1 and len(e.args) == 2:      # neutrale operator a &+ b
+            return f"{self.parenthesize(e.args[0], 60)} {name} {self.parenthesize(e.args[1], 60)}"
+        if not re.fullmatch(r"[A-Za-z_~][A-Za-z0-9_~]*", name):
+            name = "`" + name + "`"
         return name + "(" + ", ".join(self._print(a) for a in e.args) + ")"
 
     def _print_Abs(self, e): return "abs(" + self._print(e.args[0]) + ")"

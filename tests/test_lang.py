@@ -103,3 +103,37 @@ def test_typed_param_error():
 
 def test_module_private_local():
     assert "does not export" in err("M := module() export f; local a; a := 1; f := () -> a end module: M:-a;")
+
+
+MORE = [
+    ("a := 3: a||1, c||(1..3);", "a1, c1, c2, c3"),
+    ("x := 5: x||y, \"ab\"||c;", "xy, \"abc\""),
+    ("seq(i, i = 1..10, 3);", "1, 4, 7, 10"),
+    ("k := 0: do k := k + 1; if k > 5 then break end if end do: k;", "6"),
+    ("`&+` := (a,b) -> a - b: 5 &+ 3;", "2"),
+    ("1 &foo 2;", "1 &foo 2"),
+    ("convert([1, 2, 3], `+`);", "6"),
+    ("eval(diff(f(x), x), f = sin);", "cos(x)"),
+    ("[1,2] + [3,4], 2*[1,x], -[1,2];", "[4, 6], [2, 2*x], [-1, -2]"),
+    ("assume(z > 0): additionally(z < 1): is(z < 2), is(z < 1/2);", "true, FAIL"),
+    ("A := Array(1..5, i -> i^2): A[3];", "9"),
+    ("add([1, 2, 3]), mul([2, 3]);", "6, 6"),
+    ("sprintf(\"%q\", 1, 2, 3);", "\"1, 2, 3\""),
+]
+
+
+@pytest.mark.parametrize("code, expected", MORE)
+def test_lang_more(code, expected):
+    assert last(code) == expected
+
+
+def test_toplevel_loop_echo():
+    assert outs("for i to 3 do i^2 end do;") == ["1", "4", "9"]
+    assert outs("for i to 3 do i^2 end do:") == []
+
+
+def test_subs_in_series_keeps_terms():
+    # O(e^4) mag na e = 1/v geen lagere termen opslokken
+    assert last("s := series(1/(1-e), e=0, 4): subs(e=1/v, s);") == "1 + 1/v + 1/v^2 + 1/v^3 + O(1/v^4)"
+    assert last("p := (T,v) -> T*v: s := series(1/(1-e), e=0, 4): coeff(series(subs(e = 1/(1/p + q), s), p=0), p, 1);") \
+        == "1"

@@ -384,9 +384,13 @@ def series(ctx, f, pt=None, n=None, *rest):
 
     def one(e):
         e = sp.sympify(e)
+        e = e.replace(lambda z: isinstance(z, sp.Function) and getattr(z.func, '__name__', '') == 'O',
+                      lambda z: sp.Integer(0))
         if e.has(sp.Order):
             # O-termen in een andere veranderlijke (bv. na subs in een eerdere reeks) weglaten
-            e = e.replace(lambda z: isinstance(z, sp.Order) and not (v in z.variables), lambda z: sp.Integer(0))
+            e = e.replace(lambda z: isinstance(z, sp.Order) and not (tuple(z.variables) == (v,) and
+                                                                   all(pt_ == a for pt_ in z.point)),
+                          lambda z: sp.Integer(0))
         try:
             return sp.series(e, v, a, nn)
         except ValueError:
@@ -659,6 +663,11 @@ def _flat_items(e):
 @maple('convert')
 def convert(ctx, e, typ, *rest):
     t = _name(typ)
+    if t in ('+', '*'):
+        # convert(L, `+`): de operator toepassen op de operanden
+        items = _flat_items(e) if isinstance(e, (MList, MSet, Seq, list, tuple, sp.MatrixBase)) else list(
+            sp.sympify(e).args) or [e]
+        return sp.Add(*items) if t == '+' else sp.Mul(*items)
     if t == 'list':
         if isinstance(e, sp.MatrixBase):
             return MList(e.tolist() if min(e.shape) > 1 else list(e))

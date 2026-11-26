@@ -88,6 +88,11 @@ def subs_value(e, pairs):
     """pairs: lijst (oud, nieuw)."""
     if not pairs:
         return e
+    if isinstance(e, sp.Basic) and e.has(sp.Order):
+        # O-term van een reeks: niet laten 'absorberen' door sympy (O(e^6) met e=1/v zou lagere termen opslokken)
+        olds = {p[0] for p in pairs}
+        if any(isinstance(o, sp.Order) and set(o.variables) & olds for o in e.atoms(sp.Order)):
+            e = e.replace(lambda z: isinstance(z, sp.Order), lambda z: sp.Function('O')(z.expr))
     if isinstance(e, sp.Basic):
         try:
             cplx = [p for p in pairs if not isinstance(p[0], sp.Symbol)]
@@ -657,11 +662,59 @@ def subs(ctx, *a):
     return e
 
 
+def _func_subs(ctx, e, pairs):
+    """Paren f = g waarbij f een functienaam is die in e als f(...) voorkomt: vervang de toepassingen door
+    g(...) (g = builtin-naam, procedure of pijlfunctie) en evalueer afgeleiden opnieuw (eval(diff(f(x),x), f=sin))."""
+    rest, fsub = [], []
+    for l, r in pairs:
+        if isinstance(l, sp.Symbol) and isinstance(e, (sp.Basic, sp.MatrixBase)) and any(
+                getattr(a.func, "__name__", None) == l.name for a in _atoms_undef(e)):
+            fsub.append((l.name, r))
+        else:
+            rest.append((l, r))
+    if not fsub:
+        return e, pairs
+    from sympy.core.function import AppliedUndef
+
+    def conv(x):
+        if isinstance(x, sp.MatrixBase):
+            return x.applyfunc(conv)
+        if not isinstance(x, sp.Basic):
+            return x
+        rep_ = {}
+        for a in x.atoms(AppliedUndef):
+            for nm, g in fsub:
+                if a.func.__name__ == nm:
+                    rep_[a] = ctx.call(g, *a.args) if not isinstance(g, sp.Symbol) or g.name in BUILTINS or \
+                        ctx.get(g.name) is not None else sp.Function(g.name)(*a.args)
+        if not rep_:
+            return x
+        y = x.xreplace(rep_)
+        try:
+            return y.doit()
+        except Exception:
+            return y
+    return conv(e), rest
+
+
+def _atoms_undef(e):
+    from sympy.core.function import AppliedUndef
+    if isinstance(e, sp.MatrixBase):
+        out = set()
+        for x in e:
+            if isinstance(x, sp.Basic):
+                out |= x.atoms(AppliedUndef)
+        return out
+    return e.atoms(AppliedUndef) if isinstance(e, sp.Basic) else set()
+
+
 @core("eval")
 def eval_(ctx, e, *eqs):
     if not eqs:
         return e
-    return subs_value(e, eq_pairs(list(eqs)))
+    pairs = eq_pairs(list(eqs))
+    e, pairs = _func_subs(ctx, e, pairs)
+    return subs_value(e, pairs)
 
 
 @core("allvalues")
@@ -1300,7 +1353,9 @@ def _format(ctx, fmt, args):
                     raise MapleError(f"floating-point expected for {conv} format, but received {T(v)}")
                 return (spec + conv) % x.real
             raise MapleError(f"floating-point expected for {conv} format, but received {T(v)}")
-        if conv in "aAqQ":
+        if conv in "qQ":                    # %q: alle resterende argumenten, gescheiden door komma's
+            return (spec + "s") % ", ".join(T(x) for x in [v] + list(it))
+        if conv in "aA":
             return (spec + "s") % T(v)
         if conv == "s":
             return (spec + "s") % _text(v)
