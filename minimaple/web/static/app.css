@@ -195,3 +195,4 @@ html, body { overflow-x: hidden; }
 .ach{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub);font:12px Inter,system-ui,sans-serif}
 .acitem.on .ach{color:inherit;opacity:.85}
 [data-theme=hygra] .acbox{border:2px solid var(--accent)}
+html.is-app .only-web, html.is-web .only-app{display:none!important}

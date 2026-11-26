@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mini-Maple downloaden</title>
+<meta name="description" content="mini-Maple als offline app voor Windows: downloaden, installeren en .mw/.mpl-bestanden koppelen.">
+<link rel="stylesheet" href="/static/fonts.css?v=9">
+<script src="/static/theme.js?v=9"></script>
+<link rel="stylesheet" href="/static/app.css?v=9">
+<style>
+  html, body { height: auto; overflow: auto; }
+  body { background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; margin: 0; }
+  .dl { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  .dl h1 { font-size: 28px; margin: 8px 0 4px; letter-spacing: -.01em; }
+  .dl .lead { color: var(--sub); margin: 0 0 20px; line-height: 1.5; }
+  .dl .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin: 14px 0; }
+  .dl h2 { font-size: 17px; margin: 0 0 10px; }
+  .dl ol, .dl ul { margin: 0; padding-left: 22px; line-height: 1.6; }
+  .dl li + li { margin-top: 4px; }
+  .dl code, .dl kbd { font: 13px "JetBrains Mono", monospace; background: var(--fill2); padding: 1px 6px; border-radius: 6px; }
+  .dl .btn { display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: var(--on-accent, #fff); text-decoration: none; font-weight: 700; padding: 14px 20px; border-radius: 12px; font-size: 16px; }
+  .dl .meta { color: var(--sub); font-size: 13px; margin-top: 10px; }
+  .dl .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+  .dl .facts div { background: var(--fill); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+  .dl .facts b { display: block; font-size: 12px; color: var(--sub); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .dl .warn { border-left: 4px solid var(--c2); }
+  .dl a { color: var(--link, var(--accent)); }
+  [data-theme=hygra] .dl .card { border: 2px solid var(--line); }
+  [data-theme=hygra] body { font-family: "Chakra Petch", system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<header class="top">
+  <nav class="sh-nav">
+    <span class="brand"><a href="/" style="color:inherit;text-decoration:none">mini-Maple</a><span id="docname">downloaden</span></span>
+    <div class="themebtns" role="group" aria-label="Thema"><button type="button" data-t="light">Licht</button><button type="button" data-t="dark">Donker</button><button type="button" data-t="hygra">HyGra</button></div>
+  </nav>
+</header>
+<main class="dl">
+  <h1>mini-Maple voor Windows</h1>
+  <p class="lead">Dezelfde worksheet als op <a href="/">maple.hydrargyrum.be</a>, maar als app op je eigen laptop. De rekenkern draait lokaal: geen internet nodig, geen tijdslimiet van de server, en je kan .mw- en .mpl-bestanden rechtstreeks openen met een dubbelklik.</p>
+
+  <div class="card">
+    <a class="btn" href="/download/mini-Maple-windows.zip" download>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+      Download voor Windows (.zip)
+    </a>
+    <div class="facts">
+      <div><b>Versie</b>2026.11.26</div>
+      <div><b>Grootte</b>99 MB (uitgepakt 284 MB)</div>
+      <div><b>Systeem</b>Windows 10/11, 64-bit</div>
+      <div><b>Installatie</b>Geen admin nodig</div>
+    </div>
+    <p class="meta">Inclusief eigen Python en alle rekenbibliotheken. Broncode: <a href="https://github.com/HenriGoudezeune/minimaple">github.com/HenriGoudezeune/minimaple</a>.</p>
+  </div>
+
+  <div class="card">
+    <h2>Installeren</h2>
+    <ol>
+      <li>Download de zip en pak hem uit naar een vaste map, bijvoorbeeld <code>C:\Users\jij\mini-Maple</code> (rechtsklik → <i>Alles uitpakken</i>).</li>
+      <li>Dubbelklik <code>mini-Maple.vbs</code>. De app opent in een eigen venster.</li>
+      <li>Optioneel: dubbelklik <code>snelkoppeling-maken.vbs</code> voor een snelkoppeling op het bureaublad en in het Startmenu.</li>
+    </ol>
+  </div>
+
+  <div class="card warn">
+    <h2>Windows waarschuwt bij de eerste start</h2>
+    <p style="margin:0;line-height:1.55">De app is niet digitaal ondertekend (dat kost honderden euro's per jaar). Windows SmartScreen toont daarom "Windows heeft uw pc beveiligd". Klik op <b>Meer informatie</b> → <b>Toch uitvoeren</b>. Blokkeert Windows de scripts, rechtsklik dan de zip vóór het uitpakken → <b>Eigenschappen</b> → vink <b>Blokkering opheffen</b> aan.</p>
+  </div>
+
+  <div class="card">
+    <h2>mini-Maple als standaard voor .mw en .mpl</h2>
+    <ol>
+      <li>Dubbelklik <code>bestandskoppeling-aan.vbs</code> in de map van de app.</li>
+      <li>Windows laat een app de standaard niet stil overnemen. Rechtsklik daarom één keer een <code>.mw</code>-bestand → <b>Openen met</b> → <b>Een andere app kiezen</b> → <b>mini-Maple</b> → <b>Altijd</b>. Doe hetzelfde voor een <code>.mpl</code>-bestand.</li>
+      <li>Of via <b>Instellingen → Apps → Standaard-apps → mini-Maple</b>.</li>
+    </ol>
+    <p class="meta">Ongedaan maken: <code>bestandskoppeling-uit.vbs</code>.</p>
+  </div>
+
+  <div class="card">
+    <h2>Gebruik</h2>
+    <ul>
+      <li><kbd>Enter</kbd> voert een invoergroep uit, <kbd>Shift+Enter</kbd> geeft een nieuwe regel.</li>
+      <li><kbd>Ctrl+J</kbd> / <kbd>Ctrl+K</kbd>: nieuwe invoergroep eronder / erboven.</li>
+      <li><kbd>Ctrl+Space</kbd>: autocompletion, <kbd>F1</kbd> of <code>?diff</code>: help.</li>
+      <li>Werkt het venster niet, start dan <code>mini-Maple.bat</code>: dat toont de foutmelding.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Bijwerken en verwijderen</h2>
+    <ul>
+      <li>Bijwerken: download de nieuwe zip en pak hem uit over de oude map.</li>
+      <li>Verwijderen: draai <code>bestandskoppeling-uit.vbs</code>, verwijder de snelkoppelingen en daarna de map. Er blijft niets achter in het register.</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>

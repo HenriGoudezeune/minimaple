@@ -67,6 +67,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _download(self, name):
+        """Stuurt een bestand uit MINIMAPLE_DOWNLOADS in stukken (geen 100 MB in het geheugen)."""
+        d = os.environ.get("MINIMAPLE_DOWNLOADS") or os.path.join(os.getcwd(), "downloads")
+        if not d or "/" in name or name.startswith("."):
+            return self._send(404, b"not found", "text/plain")
+        f = Path(d) / name
+        if not f.is_file():
+            return self._send(404, b"not found", "text/plain")
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(f.stat().st_size))
+        self.send_header("Content-Disposition", f'attachment; filename="{f.name}"')
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        with open(f, "rb") as fh:
+            while True:
+                chunk = fh.read(1 << 20)
+                if not chunk:
+                    break
+                try:
+                    self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):
+                    break
+
     def _json(self, obj, code=200, extra=None):
         self._send(code, json.dumps(obj).encode(), "application/json; charset=utf-8", extra)
 
@@ -87,6 +111,10 @@ class Handler(BaseHTTPRequestHandler):
             sid, new = self._sid()
             extra = {"Set-Cookie": f"mm_sid={sid}; Path=/; HttpOnly; SameSite=Strict"} if new else {}
             return self._send(200, (STATIC / "index.html").read_bytes(), "text/html; charset=utf-8", extra)
+        if path in ("/download", "/download/"):
+            return self._send(200, (STATIC / "download.html").read_bytes(), "text/html; charset=utf-8")
+        if path.startswith("/download/"):
+            return self._download(path[len("/download/"):])
         if path == "/api/examples":
             return self._json(EXAMPLES)
         if path == "/api/commands":

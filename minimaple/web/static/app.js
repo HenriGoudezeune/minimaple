@@ -596,7 +596,52 @@
 
   // ------------------------------------------------------------------ commando's (menu, werkbalk, toetsen)
   function curOrLast() { return S.cur && S.cur.isConnected ? S.cur : groupsEl.lastElementChild; }
+  // ---------------------------------------------------------------- werkblad meenemen app <-> web
+  // Formaat: #ws=<base64url(deflate-raw(JSON {name, groups}))>. Niets wordt op een server bewaard.
+  var IS_APP = /^(127\.0\.0\.1|localhost)$/.test(location.hostname) && /^1875\d$/.test(location.port);
+  document.documentElement.classList.add(IS_APP ? "is-app" : "is-web");
+  function b64u(buf) { var s = "", a = new Uint8Array(buf); for (var i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+  function unb64u(t) { t = t.replace(/-/g, "+").replace(/_/g, "/"); while (t.length % 4) t += "="; var s = atob(t), a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+  function packWs() {
+    var data = new TextEncoder().encode(JSON.stringify({ name: S.name || "werkblad", groups: serialize() }));
+    if (!window.CompressionStream) return Promise.resolve("j" + b64u(data));
+    return new Response(new Blob([data]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer().then(function (b) { return "z" + b64u(b); });
+  }
+  function unpackWs(t) {
+    var kind = t.charAt(0), bytes = unb64u(t.slice(1));
+    var p = kind === "z" ? new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer() : Promise.resolve(bytes.buffer);
+    return p.then(function (b) { return JSON.parse(new TextDecoder().decode(b)); });
+  }
+  function openOther() {
+    packWs().then(function (t) {
+      if (IS_APP) { window.open("https://maple.hydrargyrum.be/#ws=" + t, "_blank", "noopener"); return; }
+      var left = false;
+      window.addEventListener("blur", function once() { left = true; window.removeEventListener("blur", once); });
+      location.href = "minimaple://open#ws=" + t;
+      setTimeout(function () {
+        if (!left) notice("Ging de Windows-app niet open? Dan is ze nog niet geïnstalleerd of nog nooit gestart. <a href=\"/download\">Download de app</a>, start ze één keer, en probeer opnieuw.", false);
+      }, 1800);
+    });
+  }
+  (function () {
+    var m = /^#ws=([A-Za-z0-9_-]+)$/.exec(location.hash || "");
+    if (!m) return;
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+    unpackWs(m[1]).then(function (d) {
+      if (!d || !Array.isArray(d.groups)) return;
+      if (hasContent() && S.dirty && !window.confirm("Het huidige werkblad vervangen door het meegestuurde werkblad?")) return;
+      stop(); post("/api/reset"); S.label = 0;
+      loadGroups(d.groups.map(function (g) { return { type: g.type === "text" ? "text" : "input", code: String(g.code || "") }; }));
+      setName(String(d.name || "werkblad")); S.dirty = false;
+      lsSet(LS, { name: S.name, groups: serialize() });
+      notice("Werkblad meegenomen" + (IS_APP ? " uit de webversie" : " uit de app") + ". Nog niets uitgevoerd.", false,
+        [{ label: "Alles uitvoeren", primary: true, fn: function () { noticeEl.hidden = true; runAll(); } }]);
+    }).catch(function (e) { notice("Kon het meegestuurde werkblad niet lezen: " + esc(String(e)), true); });
+  })();
+
   var CMD = {
+    openother: function () { openOther(); },
+    download: function () { location.href = "/download"; },
     "new": newSheet, open: function () { $("file").click(); },
     savemw: function () { download(toMw(serialize()), baseName() + ".mw", "application/xml"); },
     savempl: function () { download(toMpl(serialize()), baseName() + ".mpl", "text/plain"); },
