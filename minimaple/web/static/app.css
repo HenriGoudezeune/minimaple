@@ -218,3 +218,97 @@ html, body { overflow-x: hidden; }
 .acitem.on .ach{color:inherit;opacity:.85}
 [data-theme=hygra] .acbox{border:2px solid var(--accent)}
 html.is-app .only-web, html.is-web .only-app{display:none!important}
+
+/* ---- thema "Maple": desktop-look in de stijl van een klassieke Windows-rekenapp (eigen CSS, geen Maplesoft-bestanden) */
+:root[data-theme=maple]{--bg:#f0f0f0;--card:#fff;--card2:#f7f7f7;--text:#000;--sub:#555;--line:#a9b4c2;--fill:rgba(0,0,0,.035);--fill2:#cce4f7;--accent:#0078d7;--link:#0645ad;--on-accent:#000;--red:#c00000;--green:#1a7f37;--shadow:none;--shadow-hover:none;
+  --c0:#8944ab;--c1:#c00000;--c2:#b45000;--c3:#806000;--c4:#1a7f37;--c5:#0c817b;--c6:#0071a4;--c7:#c0104a;--c8:#0000ff;--c9:#3634a3;color-scheme:light;
+  --mi:#ff0000;--out:#0000ff;--brk:#8c8c8c;--paper:#fff;--chrome:#f0f0f0;--ribbon:#f3f6f9;--title:#dfe8f2;--pal:#008a3e}
+[data-theme=maple] *{border-radius:0!important}
+[data-theme=maple] body{font:13px/1.4 "Segoe UI",Tahoma,"DejaVu Sans",Arial,sans-serif;letter-spacing:0;-webkit-font-smoothing:auto}
+[data-theme=maple] .sh-nav{height:30px;padding:0 6px 0 10px;background:var(--title);border-bottom:0}
+[data-theme=maple] .brand{font-weight:600;font-size:13px}
+[data-theme=maple] .brand span{color:#000;font-weight:600;font-size:13px}
+[data-theme=maple] .brand span::before{content:"\2013";margin-right:8px;color:var(--sub)}
+[data-theme=maple] .themebtns{background:none;border:1px solid var(--line);padding:0;gap:0}
+[data-theme=maple] .themebtns button{min-height:22px;padding:2px 9px;font-weight:400;color:#000}
+[data-theme=maple] .themebtns button[aria-pressed=true]{background:#cce4f7;color:#000;box-shadow:inset 0 0 0 1px #7eb4ea}
+/* menubalk = lint-tabs */
+[data-theme=maple] .menubar{height:26px;padding:0 4px;gap:0;background:var(--title);border-bottom:1px solid var(--line);align-items:flex-end}
+[data-theme=maple] .mi>button{height:24px;padding:0 clamp(8px,2vw,18px);font-size:13px;border:1px solid transparent;border-bottom:0}
+[data-theme=maple] .mi>button:hover{background:#eaf1f8;border-color:#c5d3e2}
+[data-theme=maple] .mi>button[aria-expanded=true]{background:var(--ribbon);border-color:var(--line)}
+[data-theme=maple] .menu{top:25px;padding:2px;border:1px solid #a0a0a0;box-shadow:2px 2px 4px rgba(0,0,0,.25);min-width:240px}
+[data-theme=maple] .menu button{min-height:24px;padding:3px 10px 3px 28px;font-size:13px}
+[data-theme=maple] .menu button:hover,[data-theme=maple] .menu button:focus-visible{background:#cce4f7;color:#000;box-shadow:inset 0 0 0 1px #7eb4ea}
+[data-theme=maple] kbd{font:12px "Segoe UI",Tahoma,sans-serif;color:#555}
+/* werkbalk = lint met grote iconen en label eronder */
+[data-theme=maple] .toolbar{background:linear-gradient(#f8fafc,var(--ribbon));border-bottom:1px solid var(--line);padding:3px 6px;gap:0}
+[data-theme=maple] .tb{border:1px solid transparent;font-weight:400;font-size:12px;color:#1e1e1e}
+[data-theme=maple] .tb:hover:not(:disabled){background:#e5f1fb;border-color:#7eb4ea}
+[data-theme=maple] .tb svg{stroke-width:1.6;color:#1565c0}
+[data-theme=maple] .tb.run svg{color:#1565c0}
+[data-theme=maple] .tb.stop svg{color:#c00000}
+[data-theme=maple] .tb-sep{background:#c9d3de}
+@media(min-width:761px){
+  [data-theme=maple] .tb-sep{height:56px;margin:0 6px}
+  [data-theme=maple] .tb{flex-direction:column;justify-content:center;gap:3px;height:64px;min-width:58px;padding:2px 8px;line-height:1.15;text-align:center}
+  [data-theme=maple] .tb svg{width:30px;height:30px}
+}
+/* paletten */
+[data-theme=maple] .side{background:var(--chrome);border-right:1px solid var(--line);padding:4px 4px 16px;width:250px}
+[data-theme=maple] .palsearch{height:24px;border:1px solid #a0a0a0;font-size:13px;margin-bottom:4px}
+[data-theme=maple] .pal{border:1px solid #a0a0a0;margin-bottom:3px;background:#fff}
+[data-theme=maple] .pal>summary{justify-content:flex-start;gap:6px;padding:3px 6px;background:linear-gradient(#fafafa,#e4e4e4);color:#000;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;border-bottom:1px solid #c4c4c4}
+[data-theme=maple] .pal>summary::after{display:none}
+[data-theme=maple] .pal>summary::before{content:"\25B6";font-size:9px;width:10px}
+[data-theme=maple] .pal[open]>summary::before{content:"\25BC"}
+[data-theme=maple] .pal:not([open])>summary{border-bottom:0}
+[data-theme=maple] .items{padding:6px 4px;gap:2px;grid-template-columns:repeat(auto-fill,minmax(68px,1fr))}
+[data-theme=maple] .items button{border:1px solid transparent;background:none;color:var(--pal);font:italic 15px "Times New Roman",Times,"DejaVu Serif",serif}
+[data-theme=maple] .items button:hover{background:#e5f1fb;border-color:#7eb4ea;color:#c0007a}
+/* documenttabs */
+[data-theme=maple] .tabbar{background:#fff;padding:3px 4px 0;border-bottom:1px solid #a0a0a0}
+[data-theme=maple] .tab{height:21px;border:1px solid #c0c0c0;border-bottom:0;margin-right:-1px;background:#f4f4f4;color:#000}
+[data-theme=maple] .tab:hover{background:#e5f1fb}
+[data-theme=maple] .tab.on{background:#fff;border-color:#a0a0a0;border-top:2px solid #0078d7}
+[data-theme=maple] .tab .tn{font-size:12px;font-weight:400!important;padding:0 2px 0 6px;display:flex;align-items:center}
+[data-theme=maple] .tab .tn::before{content:"";flex:none;width:8px;height:11px;margin-right:6px;border:1px solid #555;background:linear-gradient(225deg,#f4f4f4 3px,#555 3px,#555 4px,#fff 4px);animation:none}
+[data-theme=maple] .tab.busy .tn::before{background:#9cc8ef;animation:pulse .8s infinite}
+[data-theme=maple] .tab .tx{width:18px;height:18px;font-size:15px;color:#1565c0}
+[data-theme=maple] .tab .tx:hover{background:#cce4f7;color:#000}
+[data-theme=maple] .tabadd{height:20px;width:22px;margin-bottom:1px;font-size:16px;color:#555}
+[data-theme=maple] .tren{height:18px;font-size:12px}
+/* werkblad */
+[data-theme=maple] .ws{padding:10px 16px 140px 6px}
+[data-theme=maple] .grp{padding:2px 6px 2px 16px;margin:0}
+[data-theme=maple] .grp::before{left:3px;top:2px;bottom:2px;width:4px;border-width:1px}
+[data-theme=maple] .grp.cur::before{border-color:#000}
+[data-theme=maple] .grp.cur .in-row{background:none;box-shadow:none}
+[data-theme=maple] .prompt{font:400 15px/22px "Courier New",Courier,"Liberation Mono",monospace;color:#ff0000}
+[data-theme=maple] textarea.code{font:15px/22px "Courier New",Courier,"Liberation Mono",monospace;color:#ff0000;caret-color:#000}
+[data-theme=maple] .res .math{color:#0000ff;font-size:1.1em}
+[data-theme=maple] .res .lbl{color:#000;font:13px "Segoe UI",Tahoma,sans-serif}
+[data-theme=maple] .res pre{font:14px/1.4 "Courier New",Courier,monospace;color:#0000ff}
+[data-theme=maple] .res.err pre{color:#ff0000}
+[data-theme=maple] .md,[data-theme=maple] textarea.txt{font-family:"Times New Roman",Times,"DejaVu Serif",serif;font-size:16px}
+[data-theme=maple] .md h1,[data-theme=maple] .md h2,[data-theme=maple] .md h3{font-family:"Segoe UI",Tahoma,sans-serif;font-weight:700}
+[data-theme=maple] .md code{font-family:"Courier New",monospace;background:none;color:#ff0000}
+[data-theme=maple] .addgrp{font:12px "Segoe UI",Tahoma,sans-serif;border:1px dashed #b0b0b0}
+[data-theme=maple] .notice{border:1px solid #e3c25a;border-left-width:1px;background:#fff8dc;font-size:13px}
+[data-theme=maple] .nbtn{border:1px solid #adadad;background:#e1e1e1;font-weight:400;min-height:24px}
+[data-theme=maple] .nbtn.primary{background:#e1e1e1;color:#000;border-color:#0078d7;box-shadow:inset 0 0 0 1px #0078d7}
+[data-theme=maple] .plot{border:1px solid #d0d0d0}
+/* statusbalk en dialogen */
+[data-theme=maple] .status{height:22px;background:var(--chrome);border-top:1px solid var(--line);font-size:12px;color:#000}
+[data-theme=maple] .st-state{font-weight:400}
+[data-theme=maple] .status .dot{width:6px;height:6px;background:#000}
+[data-theme=maple] .status.busy .dot{background:#0078d7}
+[data-theme=maple] .status.bad .dot{background:#c00000}
+[data-theme=maple] dialog{border:1px solid #6d8cb0;box-shadow:0 6px 24px rgba(0,0,0,.3)}
+[data-theme=maple] .dlg-head{background:var(--title);padding:4px 4px 4px 12px}
+[data-theme=maple] .dlg-head h2{font-size:13px;font-weight:400}
+[data-theme=maple] .dlg-x{width:32px;height:26px}
+[data-theme=maple] .dlg-x:hover{background:#e81123;color:#fff}
+[data-theme=maple] .acbox{border:1px solid #a0a0a0;font-family:"Courier New",monospace}
+[data-theme=maple] .acitem.on{background:#cce4f7;color:#000}
+[data-theme=maple] .status .dot{border-radius:50%!important}
