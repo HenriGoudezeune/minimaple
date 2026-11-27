@@ -76,7 +76,7 @@
     <p style="margin:0;line-height:1.55">Windows laat een app de standaard niet stil overnemen. Rechtsklik één keer een <code>.mw</code>-bestand → <b>Openen met</b> → <b>Een andere app kiezen</b> → <b>mini-Maple</b> → <b>Altijd</b>. Doe hetzelfde voor <code>.mpl</code>. Of via <b>Instellingen → Apps → Standaard-apps → mini-Maple</b>.</p>
     <h3>Bijwerken en verwijderen</h3>
     <ul>
-      <li>Bijwerken: download de nieuwe installer en voer hem uit over de oude installatie.</li>
+      <li>Bijwerken: vanaf versie 0.3.0 in de app zelf (zie <a href="#bijwerken">Bijwerken</a>), of voer de nieuwe installer uit over de oude installatie.</li>
       <li>Verwijderen: <b>Instellingen → Apps → Geïnstalleerde apps → mini-Maple → Verwijderen</b>. Snelkoppelingen en bestandskoppelingen gaan mee weg.</li>
     </ul>
   </section>
@@ -95,7 +95,7 @@
     <p style="margin:0;line-height:1.55">Selecteer een <code>.mw</code>-bestand in de Finder → <b>Archief → Toon info</b> (<kbd>⌘I</kbd>) → <b>Open met: mini-Maple</b> → <b>Wijzig alle…</b>. Doe hetzelfde voor <code>.mpl</code>.</p>
     <h3>Bijwerken en verwijderen</h3>
     <ul>
-      <li>Bijwerken: sleep de nieuwe versie naar Applications en kies <b>Vervang</b>.</li>
+      <li>Bijwerken: vanaf versie 0.3.0 in de app zelf (zie <a href="#bijwerken">Bijwerken</a>), of sleep de nieuwe versie naar Applications en kies <b>Vervang</b>.</li>
       <li>Verwijderen: sleep mini-Maple uit Applications naar de prullenmand. Eventueel ook <code>~/Library/Application Support/mini-Maple</code>.</li>
     </ul>
   </section>
@@ -121,11 +121,24 @@
   </section>
   </div>
 
+  <div class="card" id="bijwerken">
+    <h2>Bijwerken</h2>
+    <p style="margin:0 0 8px;line-height:1.55">Vanaf versie 0.3.0 kijkt de app hoogstens één keer per dag of er een nieuwe versie is. Is dat zo, dan staat rechtsonder in de statusbalk <b>Nieuwe versie x.y.z: Bijwerken</b>. Zelf kijken kan via <b>Help → Controleren op updates</b>. De app downloadt het juiste bestand van GitHub en controleert de grootte en de SHA256-controlesom (<code>SHA256SUMS</code> bij elke release) vóór ze iets installeert. Je werkbladen en tabbladen blijven bewaard.</p>
+    <ul>
+      <li><b>Windows</b> (installer): de app sluit, de installer werkt mini-Maple stil bij en start de app opnieuw. De zip-versie werkt zichzelf niet bij: download dan de installer of een nieuwe zip.</li>
+      <li><b>macOS</b>: staat mini-Maple in een map waar je mag schrijven (zoals Applications als beheerder), dan vervangt de app zichzelf en start opnieuw. Anders opent de nieuwe .dmg in de Finder: sluit mini-Maple, sleep de app naar Applications en kies <b>Vervang</b>.</li>
+      <li><b>Linux, AppImage</b>: de nieuwe versie komt op de plaats van het oude bestand (dezelfde naam) en de app start opnieuw. De map van de AppImage moet schrijfbaar zijn.</li>
+      <li><b>Linux, .deb</b>: de app vraagt je wachtwoord (pkexec) en installeert het pakket. Lukt dat niet, dan toont ze het commando, bijvoorbeeld <code>sudo apt install /tmp/mini-Maple-update/mini-maple_amd64.deb</code>.</li>
+      <li>Versie 0.2.0 en ouder kennen deze knop nog niet: installeer 0.3.0 één keer met de hand zoals hierboven.</li>
+    </ul>
+  </div>
+
   <div class="card">
     <h2>Gebruik</h2>
     <ul>
       <li><kbd>Enter</kbd> voert een invoergroep uit, <kbd>Shift+Enter</kbd> geeft een nieuwe regel.</li>
       <li><kbd>Ctrl+J</kbd> / <kbd>Ctrl+K</kbd>: nieuwe invoergroep eronder / erboven.</li>
+      <li>Meerdere werkbladen tegelijk: tabbladen boven het werkblad, elk met een eigen rekenkern. <kbd>Ctrl+Alt+N</kbd> nieuw tabblad, dubbelklik op een tab om te hernoemen.</li>
       <li><kbd>Ctrl+Space</kbd>: autocompletion, <kbd>F1</kbd> of <code>?diff</code>: help.</li>
       <li>Sluit je het venster, dan stopt mini-Maple vanzelf. Zonder Edge/Chrome opent de app in een gewoon tabblad; de rekenkern stopt dan zo'n 10 minuten nadat je het tabblad sluit.</li>
       <li>Werkt een werkblad vanuit de webversie meenemen niet (knop <b>In app</b>)? Start de app eerst één keer.</li>

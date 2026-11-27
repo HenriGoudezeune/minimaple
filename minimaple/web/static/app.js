@@ -892,13 +892,9 @@
   window.addEventListener("hashchange", wsFromHash);
   window.addEventListener("pagehide", saveAll);
 
-  // Windows-launcher: /?open=<token> -> bestand ophalen en tonen (niet uitvoeren).
+  // Launcher (app): /?open=<token> -> bestand ophalen en tonen (niet uitvoeren).
   // Op de gewone server bestaat /api/launcher/file niet (404): dan niets doen.
-  (function () {
-    var tok = null;
-    try { tok = new URLSearchParams(location.search).get("open"); } catch (e) {}
-    if (!tok) return;
-    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  function openLauncherFile(tok) {
     fetch("/api/launcher/file?token=" + encodeURIComponent(tok))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
@@ -907,5 +903,92 @@
         parseAndShow(name, d.content);
       })
       .catch(function () {});
+  }
+  (function () {
+    var tok = null;
+    try { tok = new URLSearchParams(location.search).get("open"); } catch (e) {}
+    if (!tok) return;
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+    openLauncherFile(tok);
   })();
+
+  // ---------------------------------------------------------------- app: inbox en updates
+  var MMTOK = (document.querySelector('meta[name="mm-token"]') || {}).content || "";
+  function lget(url) { return fetch(url, { headers: { "X-MM-Token": MMTOK }, cache: "no-store" }).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }); }
+  if (IS_APP && MMTOK) {
+    // een tweede start van de app (bestand dubbelklikken, minimaple://-link) levert hier af: nieuw tabblad
+    setInterval(function () {
+      lget("/api/launcher/inbox").then(function (d) {
+        (d.items || []).forEach(function (it) {
+          if (it.token) openLauncherFile(it.token); else if (it.ws) openWs(it.ws);
+        });
+        if ((d.items || []).length) try { window.focus(); } catch (e) {}
+      }).catch(function () {});
+    }, 1500);
+  }
+  var GH_LATEST = "https://api.github.com/repos/HenriGoudezeune/minimaple/releases/latest", LSUPD = "minimaple.upd";
+  function vparts(v) { return (String(v).replace(/^v/i, "").split("-")[0].split(".").map(function (x) { return parseInt(x, 10) || 0; }).concat([0, 0, 0])).slice(0, 3); }
+  function newer(a, b) { a = vparts(a); b = vparts(b); for (var i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i] > b[i]; } return false; }
+  function checkUpdates(manual) {
+    return fetch("/api/launcher/version", { cache: "no-store" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (cur) {
+      if (!cur) { if (manual) openDialog("Updates", function (b) { b.appendChild(el("p", null, "Updates zijn er alleen in de app.")); }); return; }
+      if (cur.kind === "dev" && !manual) return;
+      return fetch(GH_LATEST, { headers: { Accept: "application/vnd.github+json" }, cache: "no-store" })
+        .then(function (r) { if (!r.ok) throw new Error("GitHub antwoordde " + r.status); return r.json(); })
+        .then(function (rel) {
+          var nv = String(rel.tag_name || "").replace(/^v/, "");
+          lsSet(LSUPD, { t: Date.now(), latest: nv });
+          if (nv && newer(nv, cur.version)) { showUpdBadge(nv, cur); if (manual) updateDialog(nv, cur); }
+          else if (manual) openDialog("Updates", function (b) {
+            b.appendChild(el("p", null, "Je hebt de nieuwste versie (" + cur.version + (cur.kind === "dev" ? ", ontwikkelversie" : "") + ")."));
+          });
+        });
+    }).catch(function (e) {
+      if (manual) openDialog("Updates", function (b) { b.appendChild(el("p", null, "Controleren mislukt: " + e.message + ". Ben je online?")); });
+    });
+  }
+  function showUpdBadge(nv, cur) {
+    var b = $("st-upd"); b.hidden = false; b.textContent = "Nieuwe versie " + nv + ": Bijwerken";
+    b.onclick = function () { updateDialog(nv, cur); };
+  }
+  function updateDialog(nv, cur) {
+    openDialog("mini-Maple bijwerken", function (b) {
+      b.appendChild(el("p", null, "Versie " + nv + " is beschikbaar. Je hebt " + cur.version + "."));
+      if (!cur.asset) {
+        var p = el("p"); p.innerHTML = "Deze kopie (" + (cur.kind === "win-zip" ? "zip-versie" : "ontwikkelversie") +
+          ") kan zichzelf niet bijwerken. Download de nieuwe versie op <a href=\"https://maple.hydrargyrum.be/download\" target=\"_blank\" rel=\"noopener\">maple.hydrargyrum.be/download</a>.";
+        b.appendChild(p); return;
+      }
+      b.appendChild(el("p", "upd-note", "Je werkbladen en tabbladen blijven bewaard; de uitvoer reken je daarna opnieuw uit. De download wordt gecontroleerd (grootte en SHA256)."));
+      var go = el("button", "nbtn primary", "Bijwerken naar " + nv), bar = el("progress"), msg = el("p", "upd-msg"), pre = el("pre");
+      go.type = "button"; bar.hidden = true; pre.hidden = true; bar.max = 1; bar.value = 0;
+      b.appendChild(go); b.appendChild(bar); b.appendChild(msg); b.appendChild(pre);
+      go.onclick = function () {
+        go.disabled = true; msg.textContent = "Starten…";
+        fetch("/api/launcher/update", { method: "POST", headers: { "X-MM-Token": MMTOK, "Content-Type": "application/json" }, body: "{}" })
+          .then(function (r) { if (!r.ok && r.status !== 409) throw new Error("HTTP " + r.status); poll(); })
+          .catch(function (e) { msg.textContent = "Bijwerken mislukt: " + e.message; go.disabled = false; });
+      };
+      function poll() {
+        lget("/api/launcher/update").then(function (u) {
+          msg.textContent = u.msg || "";
+          bar.hidden = u.state !== "downloading";
+          if (u.total) { bar.max = u.total; bar.value = u.done; msg.textContent += " " + Math.round(100 * u.done / u.total) + "% van " + (u.total / 1048576).toFixed(0) + " MB"; }
+          if (u.cmd) { pre.hidden = false; pre.textContent = u.cmd; }
+          if (u.state === "error") { go.disabled = false; go.textContent = "Opnieuw proberen"; return; }
+          if (u.state === "restarting") { saveAll(); msg.textContent = u.msg + " Dit venster sluit zo."; return; }
+          if (u.state === "manual" || u.state === "uptodate") return;
+          setTimeout(poll, 600);
+        }).catch(function () { msg.textContent = "De app is gestopt voor de update. Je mag dit venster sluiten."; });
+      }
+    });
+  }
+  CMD.checkupd = function () { checkUpdates(true); };
+  if (IS_APP) {
+    var us = lsGet(LSUPD, {});
+    if (!us.t || Date.now() - us.t > 864e5) setTimeout(function () { checkUpdates(false); }, 3000);
+    else if (us.latest) fetch("/api/launcher/version").then(function (r) { return r.ok ? r.json() : null; }).then(function (cur) {
+      if (cur && cur.kind !== "dev" && newer(us.latest, cur.version)) showUpdBadge(us.latest, cur);
+    }).catch(function () {});
+  }
 })();
