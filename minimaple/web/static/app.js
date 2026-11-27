@@ -2,11 +2,17 @@
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
-  var groupsEl = $("groups"), noticeEl = $("notice"), sheetEl = $("sheet"), dlg = $("dlg");
-  var LS = "minimaple.ws", LSPAL = "minimaple.pal";
+  var wsRoot = $("groups"), tabbarEl = $("tabs"), noticeEl = $("notice"), sheetEl = $("sheet"), dlg = $("dlg");
+  var LS = "minimaple.ws", LST = "minimaple.tabs", LSPAL = "minimaple.pal";
   var mobile = window.matchMedia("(max-width:760px)");
-  var S = { name: "naamloos", dirty: false, label: 0, queue: [], busy: false, stopping: false,
-            ctrl: null, cur: null, lastInput: null, cmds: null };
+  // Elk tabblad = eigen werkblad + eigen rekenkern (sessie "cookie:tabid" op de server).
+  // S = het actieve tabblad, groupsEl = zijn groepencontainer.
+  var TABS = [], S = null, groupsEl = null, CMDS = null;
+  var WELCOME = "# Nieuw werkblad\nTyp Maple-commando's na de `>`. **Enter** voert een groep uit en springt naar de volgende, **Shift+Enter** maakt een nieuwe regel. Paletten links voegen sjablonen in; `?diff` toont help.";
+  function newId() {
+    var a = new Uint8Array(6); (window.crypto || window.msCrypto).getRandomValues(a);
+    return Array.prototype.map.call(a, function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+  }
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -22,7 +28,10 @@
   }
 
   // ------------------------------------------------------------------ status
-  function setStatus(txt, kind) {
+  function setStatus(txt, kind, T) {
+    T = T || S; T.status = [txt, kind || ""];
+    T.tabEl.classList.toggle("busy", kind === "busy");
+    if (T !== S) return;
     $("st-state").textContent = txt;
     var s = $("status"); s.classList.toggle("busy", kind === "busy"); s.classList.toggle("bad", kind === "bad");
     document.querySelector('.tb[data-cmd="stop"]').disabled = !(S.busy || S.queue.length);
@@ -33,6 +42,12 @@
   }
   function setName(n) {
     S.name = n || "naamloos";
+    showName();
+    S.tabEl.querySelector(".tn").textContent = S.name;
+    S.tabEl.title = S.name;
+    saveSoon();
+  }
+  function showName() {
     $("docname").textContent = S.name;
     document.title = S.name + " - mini-Maple";
   }
@@ -106,16 +121,117 @@
     inputs().forEach(function (g) { autosize(ta(g)); });
     info();
   }
-  function serialize() {
-    return groups().map(function (g) { return { type: g.dataset.type, code: codeOf(g) }; });
+  function serialize(T) {
+    return Array.prototype.map.call((T ? T.el : groupsEl).children, function (g) { return { type: g.dataset.type, code: codeOf(g) }; });
   }
   var saveT = null;
-  function changed() {
-    S.dirty = true;
+  function saveAll() {
     clearTimeout(saveT);
-    saveT = setTimeout(function () { lsSet(LS, { name: S.name, groups: serialize() }); }, 400);
+    if (S) lsSet(LST, { active: S.id, tabs: TABS.map(function (t) { return { id: t.id, name: t.name, groups: serialize(t) }; }) });
   }
-  function hasContent() { return groups().some(function (g) { return codeOf(g).trim(); }); }
+  function saveSoon() { clearTimeout(saveT); saveT = setTimeout(saveAll, 400); }
+  function changed() { S.dirty = true; saveSoon(); }
+  function hasContent(T) { return serialize(T).some(function (g) { return g.code.trim(); }); }
+  // leeg = geen code en hoogstens de welkomsttekst: een geopend bestand mag dit tabblad overnemen
+  function isBlank(T) { return !T.busy && !T.queue.length && serialize(T).every(function (g) { return !g.code.trim() || g.code === WELCOME; }); }
+  function tabOf(g) { return g && g.parentNode && g.parentNode._tab; }
+
+  // ------------------------------------------------------------------ tabbladen
+  function makeTab(id, name) {
+    var T = { id: id || newId(), name: name || "naamloos", dirty: false, label: 0, queue: [], busy: false, stopping: false,
+              ctrl: null, cur: null, lastInput: null, lastBad: false, status: ["Ready", ""], scroll: 0 };
+    T.el = el("div", "tabws"); T.el.hidden = true; T.el._tab = T; wsRoot.appendChild(T.el);
+    var b = el("div", "tab"), n = el("button", "tn", T.name), x = el("button", "tx", "\u00d7");
+    b._tab = T; b.title = T.name;
+    n.type = x.type = "button"; n.setAttribute("role", "tab"); n.setAttribute("aria-selected", "false"); n.tabIndex = -1;
+    x.setAttribute("aria-label", "Tabblad sluiten"); x.title = "Tabblad sluiten (Ctrl+Alt+W)"; x.tabIndex = -1;
+    b.appendChild(n); b.appendChild(x);
+    T.tabEl = b; tabbarEl.appendChild(b);
+    TABS.push(T);
+    return T;
+  }
+  function activate(T) {
+    if (!T || S === T) return;
+    if (S) {
+      S.scroll = sheetEl.scrollTop; S.el.hidden = true; S.tabEl.classList.remove("on");
+      var o = S.tabEl.querySelector(".tn"); o.setAttribute("aria-selected", "false"); o.tabIndex = -1;
+    }
+    S = T; groupsEl = T.el; T.el.hidden = false; T.tabEl.classList.add("on");
+    var n = T.tabEl.querySelector(".tn"); n.setAttribute("aria-selected", "true"); n.tabIndex = 0;
+    noticeEl.hidden = true;
+    inputs().forEach(function (g) { autosize(ta(g)); });   // verborgen tabbladen hadden hoogte 0
+    showName(); setStatus(T.status[0], T.status[1]); info();
+    sheetEl.scrollTop = T.scroll || 0;
+    try { T.tabEl.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (e) {}
+    saveSoon();
+  }
+  function uniqueName(base) {
+    var names = TABS.map(function (t) { return t.name; }), n = base, i = 2;
+    while (names.indexOf(n) >= 0) n = base + " " + i++;
+    return n;
+  }
+  function newTab(name, list, focus) {
+    var T = makeTab(null, name || uniqueName("naamloos"));
+    activate(T); loadGroups(list || []); T.dirty = false; saveSoon();
+    if (focus !== false && !mobile.matches) focusGroup(inputs()[0]);
+    return T;
+  }
+  function closeTab(T) {
+    T = T || S;
+    if (T.dirty && hasContent(T) && !window.confirm("\u201c" + T.name + "\u201d sluiten? Niet-opgeslagen werk gaat verloren.")) return;
+    stop(T); post("/api/reset", { tab: T.id }).catch(function () {});
+    var i = TABS.indexOf(T);
+    TABS.splice(i, 1); T.el.remove(); T.tabEl.remove();
+    if (S === T) {
+      S = null;
+      if (!TABS.length) newTab(); else activate(TABS[Math.min(i, TABS.length - 1)]);
+    }
+    saveAll();
+  }
+  function stepTab(d) { if (TABS.length > 1) activate(TABS[(TABS.indexOf(S) + d + TABS.length) % TABS.length]); }
+  function renameTab(T) {
+    T = T || S; activate(T);
+    var tn = T.tabEl.querySelector(".tn"), inp = el("input", "tren"), done = false;
+    inp.value = T.name; inp.setAttribute("aria-label", "Naam van het tabblad"); inp.maxLength = 80;
+    tn.hidden = true; T.tabEl.insertBefore(inp, tn); inp.focus(); inp.select();
+    function fin(ok) {
+      if (done) return; done = true;
+      var v = inp.value.trim(); inp.remove(); tn.hidden = false;
+      if (ok && v && v !== T.name) { activate(T); setName(v); }
+      tn.focus();
+    }
+    inp.addEventListener("keydown", function (e) {
+      e.stopPropagation();
+      if (e.key === "Enter") { e.preventDefault(); fin(true); } else if (e.key === "Escape") { e.preventDefault(); fin(false); }
+    });
+    inp.addEventListener("blur", function () { fin(true); });
+  }
+  // bestand of meegestuurd werkblad tonen: in het huidige tabblad als dat leeg is, anders in een nieuw
+  function showInTab(name, list) {
+    if (S && isBlank(S)) {
+      post("/api/reset", { tab: S.id }).catch(function () {}); S.label = 0;
+      loadGroups(list); setName(name);
+    } else newTab(name, list, false);
+    S.dirty = false; sheetEl.scrollTop = 0; saveAll();
+  }
+  tabbarEl.addEventListener("click", function (e) {
+    var t = e.target.closest(".tab"); if (!t || e.target.closest(".tren")) return;
+    if (e.target.closest(".tx")) closeTab(t._tab); else activate(t._tab);
+  });
+  tabbarEl.addEventListener("auxclick", function (e) {   // middenklik sluit, zoals in browsers
+    var t = e.target.closest(".tab"); if (t && e.button === 1) { e.preventDefault(); closeTab(t._tab); }
+  });
+  tabbarEl.addEventListener("dblclick", function (e) { var t = e.target.closest(".tn"); if (t) renameTab(t.parentNode._tab); });
+  tabbarEl.addEventListener("keydown", function (e) {
+    if (!e.target.classList.contains("tn")) return;
+    var T = e.target.parentNode._tab, i = TABS.indexOf(T), j = -1;
+    if (e.key === "ArrowRight") j = (i + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") j = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") j = 0; else if (e.key === "End") j = TABS.length - 1;
+    else if (e.key === "F2") { e.preventDefault(); renameTab(T); return; }
+    else if (e.key === "Delete") { e.preventDefault(); closeTab(T); return; }
+    if (j >= 0) { e.preventDefault(); activate(TABS[j]); TABS[j].tabEl.querySelector(".tn").focus(); }
+  });
 
   // ------------------------------------------------------------------ markdown-light
   function esc(s) { return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -164,7 +280,8 @@
   }
 
   // ------------------------------------------------------------------ uitvoer
-  function renderResults(out, results) {
+  function renderResults(out, results, T) {
+    T = T || S;
     out.textContent = "";
     var multi = results.length > 1;
     results.forEach(function (r) {
@@ -181,10 +298,10 @@
             try { window.katex.render(r.latex, m, { throwOnError: true, displayMode: true }); }
             catch (x) { m.textContent = ""; m.appendChild(el("pre", null, txt || r.latex)); }
             box.appendChild(m);
-            S.label += 1; box.appendChild(el("span", "lbl", "(" + S.label + ")"));
+            T.label += 1; box.appendChild(el("span", "lbl", "(" + T.label + ")"));
           } else if (r.latex) {              // procedures e.d.: als tekst, gecentreerd
             m.appendChild(el("pre", null, txt)); box.appendChild(m);
-            S.label += 1; box.appendChild(el("span", "lbl", "(" + S.label + ")"));
+            T.label += 1; box.appendChild(el("span", "lbl", "(" + T.label + ")"));
           } else {
             box.appendChild(el("pre", null, txt));   // print/printf-uitvoer
           }
@@ -203,58 +320,59 @@
 
   // ------------------------------------------------------------------ evalueren
   function enqueue(g) {
-    if (!g || g.dataset.type !== "input" || S.queue.indexOf(g) >= 0) return;
-    S.queue.push(g); g.classList.add("queued"); pump();
+    var T = tabOf(g);
+    if (!T || g.dataset.type !== "input" || T.queue.indexOf(g) >= 0) return;
+    T.queue.push(g); g.classList.add("queued"); pump(T);
   }
-  function pump() {
-    if (S.busy) return;
-    var g = S.queue.shift();
-    if (!g) return setStatus(S.lastBad ? "Ready (fout)" : "Ready", S.lastBad ? "bad" : "");
-    if (!g.isConnected) return pump();
-    evalGroup(g).then(pump);
+  function pump(T) {
+    if (T.busy) return;
+    var g = T.queue.shift();
+    if (!g) return setStatus(T.lastBad ? "Ready (fout)" : "Ready", T.lastBad ? "bad" : "", T);
+    if (!g.isConnected) return pump(T);
+    evalGroup(g, T).then(function () { pump(T); });
   }
-  function evalGroup(g) {
+  function evalGroup(g, T) {
     g.classList.remove("queued");
     var code = codeOf(g).trim(), out = g.querySelector(".out");
     if (!code) { out.textContent = ""; return Promise.resolve(); }
     if (code.charAt(0) === "?") {
       g.classList.add("busy");
       return getHelp(code.slice(1).replace(/[;:]\s*$/, "")).then(function (d) {
-        out.textContent = ""; out.appendChild(helpBox(d.text)); S.lastBad = false;
-      }).catch(function (e) { renderResults(out, [{ error: String(e) }]); })
+        out.textContent = ""; out.appendChild(helpBox(d.text)); T.lastBad = false;
+      }).catch(function (e) { renderResults(out, [{ error: String(e) }], T); })
         .then(function () { g.classList.remove("busy"); });
     }
-    if (/^restart\s*[;:]/.test(code)) S.label = 0;
-    S.lastBad = false;
-    S.busy = true; g.classList.add("busy"); setStatus("Evaluating…", "busy");
+    if (/^restart\s*[;:]/.test(code)) T.label = 0;
+    T.lastBad = false;
+    T.busy = true; g.classList.add("busy"); setStatus("Evaluating…", "busy", T);
     var t0 = performance.now();
-    S.ctrl = window.AbortController ? new AbortController() : null;
+    T.ctrl = window.AbortController ? new AbortController() : null;
     var tries = 0;
     function call() {   // bij 429 (rate limit) even wachten en opnieuw, zodat "Alles uitvoeren" op grote werkbladen lukt
       return fetch("/api/eval", { method: "POST", headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ code: code }), signal: S.ctrl ? S.ctrl.signal : undefined })
+                                  body: JSON.stringify({ code: code, tab: T.id }), signal: T.ctrl ? T.ctrl.signal : undefined })
         .then(function (r) {
-          if (r.status === 429 && tries++ < 30 && !S.stopping) {
-            setStatus("Wachten (te veel verzoeken)…", "busy");
+          if (r.status === 429 && tries++ < 30 && !T.stopping) {
+            setStatus("Wachten (te veel verzoeken)…", "busy", T);
             return new Promise(function (ok) { setTimeout(ok, 3000); }).then(function () {
-              if (S.stopping) throw new Error("stopped");
-              setStatus("Evaluating…", "busy"); return call();
+              if (T.stopping) throw new Error("stopped");
+              setStatus("Evaluating…", "busy", T); return call();
             });
           }
           return r.json();
         });
     }
     return call()
-      .then(function (d) { renderResults(out, d.results || [{ error: d.error || "unknown error" }]); return !d.results; })
+      .then(function (d) { renderResults(out, d.results || [{ error: d.error || "unknown error" }], T); return !d.results; })
       .catch(function (e) {
-        renderResults(out, [{ error: S.stopping ? "computation interrupted (Stop); session reset, earlier definitions lost." : String(e) }]);
+        renderResults(out, [{ error: T.stopping ? "computation interrupted (Stop); session reset, earlier definitions lost." : String(e) }], T);
         return true;
       })
       .then(function (bad) {
-        S.busy = false; S.ctrl = null; g.classList.remove("busy");
+        T.busy = false; T.ctrl = null; g.classList.remove("busy");
         var dt = (performance.now() - t0) / 1000;
-        $("st-time").textContent = "laatste: " + (dt < 10 ? dt.toFixed(2) : dt.toFixed(1)) + " s";
-        S.lastBad = !!(bad || out.querySelector(".err"));
+        if (T === S) $("st-time").textContent = "laatste: " + (dt < 10 ? dt.toFixed(2) : dt.toFixed(1)) + " s";
+        T.lastBad = !!(bad || out.querySelector(".err"));
       });
   }
   function runCurrent(advance) {
@@ -269,22 +387,23 @@
     focusGroup(n);
   }
   function runAll() {
-    S.label = 0;
+    S.label = 0; S.lastBad = false;
     inputs().forEach(function (g) { if (codeOf(g).trim()) enqueue(g); });
   }
-  function stop() {
-    S.queue.forEach(function (g) { g.classList.remove("queued"); }); S.queue = [];
-    if (!S.busy) return setStatus("Ready");
-    S.stopping = true;
-    post("/api/stop").catch(function () {}).then(function () {
-      if (S.ctrl) S.ctrl.abort();
-      S.label = 0;
-      setTimeout(function () { S.stopping = false; }, 500);
+  function stop(T) {
+    T = T || S;
+    T.queue.forEach(function (g) { g.classList.remove("queued"); }); T.queue = [];
+    if (!T.busy) return setStatus("Ready", "", T);
+    T.stopping = true;
+    post("/api/stop", { tab: T.id }).catch(function () {}).then(function () {
+      if (T.ctrl) T.ctrl.abort();
+      T.label = 0;
+      setTimeout(function () { T.stopping = false; }, 500);
     });
   }
   function restart() {
     stop();
-    post("/api/reset").then(function () {
+    post("/api/reset", { tab: S.id }).then(function () {
       S.label = 0; setStatus("Ready (restarted)");
       flash("Restart: alle definities zijn gewist. De uitvoer blijft staan.");
     });
@@ -309,27 +428,24 @@
   function openFile(f) {
     if (!f) return;
     if (f.size > 5 * 1024 * 1024) return notice("Bestand te groot (max 5 MB).", true);
-    if (S.dirty && hasContent() && !window.confirm("Het huidige werkblad vervangen door " + f.name + "?")) return;
     parseAndShow(f.name, f);
   }
   function parseAndShow(fname, body) {
-    var f = { name: fname };
+    var f = { name: fname }, T0 = S;
     setStatus("Openen…", "busy");
     fetch("/api/open?name=" + encodeURIComponent(f.name), { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: body })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.error) { setStatus("Ready", "bad"); return notice("Kon " + esc(f.name) + " niet openen: " + esc(d.error), true); }
-        stop(); post("/api/reset"); S.label = 0;
-        loadGroups(d.groups); setName(f.name); S.dirty = false;
-        lsSet(LS, { name: S.name, groups: serialize() });
-        sheetEl.scrollTop = 0;
+        if (d.error) { setStatus("Ready", "bad", T0); return notice("Kon " + esc(f.name) + " niet openen: " + esc(d.error), true); }
+        setStatus("Ready", "", T0);
+        showInTab(f.name, d.groups);
         var nIn = inputs().length, nTx = groups().length - nIn;
         var html = "<b>" + esc(f.name) + "</b> geopend: " + nIn + " invoergroepen, " + nTx + " tekstblokken. Nog niets uitgevoerd.";
         if (d.warnings && d.warnings.length) html += "<ul>" + d.warnings.map(function (w) { return "<li>" + esc(w) + "</li>"; }).join("") + "</ul>";
         notice(html, false, [{ label: "Alles uitvoeren", primary: true, fn: function () { noticeEl.hidden = true; runAll(); } }]);
         setStatus("Ready");
       })
-      .catch(function (e) { setStatus("Ready", "bad"); notice("Openen mislukt: " + esc(String(e)), true); });
+      .catch(function (e) { setStatus("Ready", "bad", T0); notice("Openen mislukt: " + esc(String(e)), true); });
   }
   function xmlEsc(s) { return s.replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function toMpl(list) {
@@ -382,14 +498,6 @@
       "<title>" + esc(baseName()) + '</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.11/katex.min.css">' +
       "<style>" + css + "</style></head><body>" + body + "</body></html>", baseName() + ".html", "text/html");
   }
-  function newSheet() {
-    if (S.dirty && hasContent() && !window.confirm("Nieuw werkblad? Niet-opgeslagen werk gaat verloren.")) return;
-    stop(); post("/api/reset"); S.label = 0;
-    loadGroups([]); setName("naamloos"); S.dirty = false; noticeEl.hidden = true;
-    lsSet(LS, { name: S.name, groups: serialize() });
-    focusGroup(inputs()[0]);
-  }
-
   // ------------------------------------------------------------------ dialoog / help
   function openDialog(title, build) {
     $("dlg-title").textContent = title;
@@ -400,8 +508,8 @@
     if (e.target === dlg || e.target.hasAttribute("data-close")) dlg.close();
   });
   function loadCmds() {
-    if (S.cmds) return Promise.resolve(S.cmds);
-    return fetch("/api/commands").then(function (r) { return r.json(); }).then(function (d) { S.cmds = d; return d; });
+    if (CMDS) return Promise.resolve(CMDS);
+    return fetch("/api/commands").then(function (r) { return r.json(); }).then(function (d) { CMDS = d; return d; });
   }
   function helpDialog(name) {
     openDialog("Help", function (b) {
@@ -458,6 +566,8 @@
     ["Alt+↑ / Alt+↓", "Groep verplaatsen"], ["↑ / ↓", "Naar de vorige/volgende groep (op de eerste/laatste regel)"],
     ["Ctrl+Del", "Groep verwijderen"], ["Ctrl+O / Ctrl+S", "Openen / opslaan als .mw"],
     ["F1", "Help bij het woord onder de cursor"], ["?naam", "Help in de worksheet, bv. ?dsolve"],
+    ["Ctrl+Alt+N", "Nieuw tabblad (Ctrl+T is van de browser)"], ["Ctrl+Alt+W", "Tabblad sluiten"],
+    ["Ctrl+Alt+PgDn / PgUp", "Volgend / vorig tabblad"], ["Dubbelklik of F2 op een tab", "Tabblad hernoemen"],
     ["Esc", "Tekstblok klaar / menu of dialoog sluiten"]];
   function keysDialog() {
     openDialog("Sneltoetsen", function (b) {
@@ -623,26 +733,21 @@
       }, 1800);
     });
   }
-  (function () {
-    var m = /^#ws=([A-Za-z0-9_-]+)$/.exec(location.hash || "");
-    if (!m) return;
-    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
-    unpackWs(m[1]).then(function (d) {
+  function openWs(t) {
+    unpackWs(t).then(function (d) {
       if (!d || !Array.isArray(d.groups)) return;
-      if (hasContent() && S.dirty && !window.confirm("Het huidige werkblad vervangen door het meegestuurde werkblad?")) return;
-      stop(); post("/api/reset"); S.label = 0;
-      loadGroups(d.groups.map(function (g) { return { type: g.type === "text" ? "text" : "input", code: String(g.code || "") }; }));
-      setName(String(d.name || "werkblad")); S.dirty = false;
-      lsSet(LS, { name: S.name, groups: serialize() });
+      showInTab(String(d.name || "werkblad").slice(0, 200), d.groups.map(function (g) { return { type: g.type === "text" ? "text" : "input", code: String(g.code || "") }; }));
       notice("Werkblad meegenomen" + (IS_APP ? " uit de webversie" : " uit de app") + ". Nog niets uitgevoerd.", false,
         [{ label: "Alles uitvoeren", primary: true, fn: function () { noticeEl.hidden = true; runAll(); } }]);
     }).catch(function (e) { notice("Kon het meegestuurde werkblad niet lezen: " + esc(String(e)), true); });
-  })();
+  }
 
   var CMD = {
     openother: function () { openOther(); },
     download: function () { location.href = "/download"; },
-    "new": newSheet, open: function () { $("file").click(); },
+    "new": function () { newTab(); }, open: function () { $("file").click(); },
+    closetab: function () { closeTab(); }, renametab: function () { renameTab(); },
+    nexttab: function () { stepTab(1); }, prevtab: function () { stepTab(-1); },
     savemw: function () { download(toMw(serialize()), baseName() + ".mw", "application/xml"); },
     savempl: function () { download(toMpl(serialize()), baseName() + ".mpl", "text/plain"); },
     exporthtml: exportHtml, print: function () { window.print(); },
@@ -660,7 +765,7 @@
       changed(); info(); focusGroup(n);
     },
     clearout: function () { Array.prototype.forEach.call(groupsEl.querySelectorAll(".out"), function (o) { o.textContent = ""; }); S.label = 0; },
-    run: function () { runCurrent(false); }, runall: runAll, stop: stop, restart: restart,
+    run: function () { runCurrent(false); }, runall: runAll, stop: function () { stop(); }, restart: restart,
     help: function () { helpDialog(wordAtCursor()); }, commands: commandsDialog, examples: examplesDialog,
     keys: keysDialog, about: aboutDialog, palettes: function () { toggleSide(); }
   };
@@ -693,15 +798,15 @@
   $("scrim").onclick = function () { toggleSide(false); };
 
   // toetsen in groepen
-  groupsEl.addEventListener("focusin", function (e) { var g = e.target.closest(".grp"); if (g) setCurrent(g); });
-  groupsEl.addEventListener("click", function (e) {
+  wsRoot.addEventListener("focusin", function (e) { var g = e.target.closest(".grp"); if (g) setCurrent(g); });
+  wsRoot.addEventListener("click", function (e) {
     var v = e.target.closest(".md"); if (v && !e.target.closest("a")) editText(v.parentNode);
   });
-  groupsEl.addEventListener("input", function (e) { if (e.target.tagName === "TEXTAREA") { autosize(e.target); changed(); } });
-  groupsEl.addEventListener("focusout", function (e) {
+  wsRoot.addEventListener("input", function (e) { if (e.target.tagName === "TEXTAREA") { autosize(e.target); changed(); } });
+  wsRoot.addEventListener("focusout", function (e) {
     if (e.target.classList.contains("txt")) { var g = e.target.parentNode; setTimeout(function () { if (document.activeElement !== e.target) renderText(g); }, 0); }
   });
-  groupsEl.addEventListener("keydown", function (e) {
+  wsRoot.addEventListener("keydown", function (e) {
     var t = e.target, g = t.closest && t.closest(".grp");
     if (!g) return;
     if (t.classList.contains("md")) { if (e.key === "Enter") { e.preventDefault(); editText(g); } return; }
@@ -723,9 +828,17 @@
     var k = e.key, c = e.ctrlKey || e.metaKey;
     if (k === "Escape") { closeMenus(); if (document.body.classList.contains("side-open")) toggleSide(false); return; }
     if (k === "F1") { e.preventDefault(); CMD.help(); return; }
+    if (k === "F2" && !e.target.closest(".tren")) { e.preventDefault(); renameTab(); return; }
     if (c && e.shiftKey && k === "Enter") { e.preventDefault(); runAll(); return; }
     if (c && !e.shiftKey && (k === "j" || k === "J")) { e.preventDefault(); CMD.addafter(); return; }
     if (c && !e.shiftKey && (k === "k" || k === "K")) { e.preventDefault(); CMD.addbefore(); return; }
+    if (c && e.altKey && !e.shiftKey) {   // tabbladen: Ctrl+Alt+N/W/PgDn/PgUp (Ctrl+T/W/Tab zijn van de browser)
+      var kl = k.toLowerCase();
+      if (kl === "n") { e.preventDefault(); CMD["new"](); return; }
+      if (kl === "w") { e.preventDefault(); closeTab(); return; }
+      if (k === "PageDown") { e.preventDefault(); stepTab(1); return; }
+      if (k === "PageUp") { e.preventDefault(); stepTab(-1); return; }
+    }
     if (c && (k === "o" || k === "O")) { e.preventDefault(); CMD.open(); return; }
     if (c && (k === "s" || k === "S")) { e.preventDefault(); CMD.savemw(); return; }
     if (c && k === "Delete") { e.preventDefault(); CMD["delete"](); return; }
@@ -748,17 +861,36 @@
 
   // ------------------------------------------------------------------ start
   buildPalettes();
-  var saved = lsGet(LS, null);
-  if (saved && saved.groups && saved.groups.length) { loadGroups(saved.groups); setName(saved.name); }
-  else {
-    loadGroups([{ type: "text", code: "# Nieuw werkblad\nTyp Maple-commando's na de `>`. **Enter** voert een groep uit en springt naar de volgende, **Shift+Enter** maakt een nieuwe regel. Paletten links voegen sjablonen in; `?diff` toont help." },
-                { type: "input", code: "" }]);
-    setName("naamloos");
-  }
-  S.dirty = false;
-  ta(inputs()[0]).placeholder = "int(x^2*sin(x), x);";
+  (function restore() {
+    var st = lsGet(LST, null), list = st && Array.isArray(st.tabs) ? st.tabs : [];
+    if (!list.length) {   // oude opslag (één werkblad) overnemen
+      var old = lsGet(LS, null);
+      list = [old && old.groups && old.groups.length ? { name: old.name, groups: old.groups }
+                                                    : { name: "naamloos", groups: [{ type: "text", code: WELCOME }, { type: "input", code: "" }] }];
+    }
+    var seen = {}, act = null;
+    list.forEach(function (t) {
+      var id = /^[0-9a-f]{12}$/.test(t.id || "") && !seen[t.id] ? t.id : null;
+      var T = makeTab(id, String(t.name || "naamloos")); seen[T.id] = 1;
+      activate(T); loadGroups(t.groups || []); T.dirty = false;
+      if (st && st.active === T.id) act = T;
+    });
+    activate(act || TABS[0]);
+    try { localStorage.removeItem(LS); } catch (e) {}
+    saveAll();
+  })();
+  if (inputs()[0] && !hasContent(S)) ta(inputs()[0]).placeholder = "int(x^2*sin(x), x);";
   setStatus("Ready"); info();
   if (!mobile.matches) focusGroup(inputs()[0]);
+  function wsFromHash() {   // #ws=... : meegenomen werkblad (web <-> app) in een eigen tabblad
+    var m = /^#ws=([A-Za-z0-9_-]+)$/.exec(location.hash || "");
+    if (!m) return;
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+    openWs(m[1]);
+  }
+  wsFromHash();
+  window.addEventListener("hashchange", wsFromHash);
+  window.addEventListener("pagehide", saveAll);
 
   // Windows-launcher: /?open=<token> -> bestand ophalen en tonen (niet uitvoeren).
   // Op de gewone server bestaat /api/launcher/file niet (404): dan niets doen.
@@ -772,7 +904,6 @@
       .then(function (d) {
         if (!d || typeof d.content !== "string") return;
         var name = d.name || ("werkblad" + (d.ext ? "." + String(d.ext).replace(/^\./, "") : ""));
-        S.dirty = false;   // expliciet geopend: niet vragen om te vervangen
         parseAndShow(name, d.content);
       })
       .catch(function () {});

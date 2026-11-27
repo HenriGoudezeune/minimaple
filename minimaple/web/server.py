@@ -172,6 +172,11 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._json({"error": "bad json"}, 400)
         sid, _ = self._sid()
+        tab = str(data.get("tab") or "")
+        if tab:   # elk werkbladtabblad heeft een eigen rekenkern
+            if not (tab.isascii() and tab.isalnum() and len(tab) <= 16):
+                return self._json({"error": "bad tab"}, 400)
+            sid = sid + ":" + tab
         if path == "/api/eval":
             code = str(data.get("code", ""))
             if not _rate_ok(self._client_ip()):

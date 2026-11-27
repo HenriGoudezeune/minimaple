@@ -69,8 +69,25 @@ body.side-hidden .side{display:none}
 .pal.greek .items button{font-size:16px;padding:2px}
 .scrim{display:none}
 
+/* ---- tabbladen */
+.sheetcol{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.tabbar{flex:none;display:flex;align-items:flex-end;gap:4px;padding:5px 8px 0;background:var(--chrome);border-bottom:1px solid var(--line)}
+.tabs{display:flex;align-items:flex-end;gap:2px;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+.tab{flex:none;display:flex;align-items:center;max-width:220px;height:32px;margin-bottom:-1px;border:1px solid transparent;border-bottom:0;border-radius:8px 8px 0 0;color:var(--sub)}
+.tab:hover{background:var(--fill)}
+.tab.on{background:var(--paper);border-color:var(--line);color:var(--text)}
+.tab .tn{min-width:0;flex:1;height:100%;padding:0 4px 0 12px;border:0;background:none;cursor:pointer;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.tab.on .tn{font-weight:600}
+.tab.busy .tn::before{content:"";display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:var(--accent);vertical-align:1px;animation:pulse .8s infinite}
+.tab .tx{flex:none;width:24px;height:24px;margin-right:4px;border:0;border-radius:6px;background:none;cursor:pointer;color:var(--sub);font-size:16px;line-height:1}
+.tab .tx:hover{background:var(--fill2);color:var(--text)}
+.tren{width:150px;height:24px;margin:0 4px 0 6px;padding:0 6px;border:1px solid var(--accent);border-radius:5px;background:var(--card);color:var(--text);font:inherit;font-size:13px}
+.tabadd{flex:none;width:30px;height:28px;margin-bottom:3px;border:1px solid transparent;border-radius:7px;background:none;cursor:pointer;color:var(--sub);font-size:19px;line-height:1}
+.tabadd:hover{background:var(--fill2);border-color:var(--line);color:var(--text)}
+[data-theme=hygra] .tab.on{border:2px solid var(--accent);border-bottom:0}
+
 /* ---- worksheet */
-.sheet{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;background:var(--paper);position:relative;-webkit-overflow-scrolling:touch}
+.sheet{flex:1;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;background:var(--paper);position:relative;-webkit-overflow-scrolling:touch}
 .ws{max-width:none;margin:0;padding:14px 16px 140px 12px}
 .notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:4px 0 12px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;background:var(--fill);font-size:14px}
 .notice.bad{border-left-color:var(--red)}
@@ -169,6 +186,10 @@ dialog[open]{display:flex;flex-direction:column}
   textarea.code{font-size:16px}
   .res .lbl{min-width:26px}
   .addgrp{margin-left:18px}
+  .tabbar{padding:4px 4px 0}
+  .tab{max-width:160px;height:36px}
+  .tab .tx{width:30px;height:30px}
+  .tabadd{width:38px;height:34px}
   .hide-m{display:none}
   .brand span{margin-left:6px}
 }
@@ -176,7 +197,8 @@ dialog[open]{display:flex;flex-direction:column}
 @media print{
   body{overflow:visible;height:auto;background:#fff;color:#000}
   .app{height:auto;display:block}
-  .top,.side,.status,.addgrp,.notice,.scrim{display:none!important}
+  .top,.side,.status,.addgrp,.notice,.scrim,.tabbar{display:none!important}
+  .sheetcol{display:block}
   .sheet{overflow:visible}
   .grp::before{display:none}
   .grp.cur .in-row{background:none;box-shadow:none}

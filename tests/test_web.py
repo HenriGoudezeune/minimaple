@@ -17,6 +17,17 @@ def test_web_api():
                                      {"Cookie": cookie, "Content-Type": "application/json"})
         res = json.load(urllib.request.urlopen(req))["results"]
         assert res and all("plots" in x for x in res)
+        # elk tabblad een eigen rekenkern
+        def ev(code, tab):
+            r = urllib.request.Request(base + "/api/eval", json.dumps({"code": code, "tab": tab}).encode(),
+                                       {"Cookie": cookie, "Content-Type": "application/json"})
+            return json.load(urllib.request.urlopen(r))["results"][-1]["text"]
+        ev("q := 7;", "aaa111"); ev("q := 9;", "bbb222")
+        assert ev("q;", "aaa111") == "7" and ev("q;", "bbb222") == "9"
+        try:
+            ev("1;", "x/../y"); assert False
+        except urllib.error.HTTPError as e:
+            assert e.code == 400
         # werkblad openen: enkel parsen
         from pathlib import Path
         mw = (Path(__file__).parent / "fixtures" / "flat.mw").read_bytes()
@@ -37,3 +48,15 @@ def test_web_api():
             assert e.code == 404
     finally:
         srv.shutdown(); server.MGR.close()
+
+
+def test_tab_limit_per_user():
+    from minimaple.sessions import SessionManager
+    m = SessionManager(max_sessions=10, max_tabs=2)
+    try:
+        for t in ("a", "b", "c"):
+            m._get("u1:" + t)
+        m._get("u2:a")
+        assert sorted(m.sessions) == ["u1:b", "u1:c", "u2:a"]
+    finally:
+        m.close()

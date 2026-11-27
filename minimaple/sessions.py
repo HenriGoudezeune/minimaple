@@ -125,17 +125,24 @@ class _Session:
 
 
 class SessionManager:
-    def __init__(self, max_sessions=int(os.environ.get("MINIMAPLE_MAX_SESSIONS", "32"))):
+    def __init__(self, max_sessions=int(os.environ.get("MINIMAPLE_MAX_SESSIONS", "32")),
+                 max_tabs=int(os.environ.get("MINIMAPLE_MAX_TABS", "8"))):
         self.sessions = {}
         self.lock = threading.Lock()
         self.max = max_sessions
+        self.max_tabs = max_tabs   # per gebruiker (sessienaam "cookie:tab"): zo kan één bezoeker de rest niet verdringen
         self.slots = threading.BoundedSemaphore(int(os.environ.get("MINIMAPLE_MAX_PARALLEL", "64")))
 
     def _get(self, name):
         with self.lock:
             s = self.sessions.get(name)
             if s is None:
-                if len(self.sessions) >= self.max:  # oudste sessie opruimen
+                if ":" in name:   # tabbladen van dezelfde gebruiker: oudste eigen tab opruimen
+                    pre = name.split(":", 1)[0] + ":"
+                    own = [k for k in self.sessions if k.startswith(pre)]
+                    if len(own) >= self.max_tabs:
+                        self.sessions.pop(min(own, key=lambda k: self.sessions[k].last)).kill()
+                if self.sessions and len(self.sessions) >= self.max:  # oudste sessie opruimen
                     old = min(self.sessions, key=lambda k: self.sessions[k].last)
                     self.sessions.pop(old).kill()
                 s = self.sessions[name] = _Session()
